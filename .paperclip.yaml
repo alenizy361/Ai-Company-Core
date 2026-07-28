@@ -1,0 +1,74 @@
+# Paperclip vendor sidecar (Agent Companies spec, section 15).
+# Adapter/runtime/budget/routine config that doesn't belong in the
+# portable markdown files. See doc/companies/companies-spec.md in
+# paperclipai/paperclip for the full spec this follows.
+schema: paperclip/v1
+
+agents:
+  ceo:
+    adapter:
+      type: claude_local
+      config:
+        # No `model` pinned: uses the Claude CLI's default. Pin one here
+        # (e.g. an Opus model) if the CEO role should reason with a
+        # stronger/slower model than the reports.
+        #
+        # Required for unattended/headless heartbeats — there's no
+        # terminal to approve prompts interactively.
+        dangerouslySkipPermissions: true
+        # Kept low on purpose: every agent below shares one Claude Max
+        # plan login, so one shared 5-hour session window and one shared
+        # weekly Sonnet/Opus pool. A low per-run turn cap keeps any single
+        # heartbeat from eating the whole shared budget.
+        maxTurnsPerRun: 60
+    inputs:
+      env:
+        # Subscription (Max plan) login is the intended auth path for this
+        # company: run `claude login` once on the host that runs Paperclip
+        # and leave this unset. Only set it if you want this specific
+        # agent to use metered API billing instead of the shared plan.
+        ANTHROPIC_API_KEY:
+          kind: secret
+          requirement: optional
+          default: ""
+
+  operations-lead:
+    adapter:
+      type: claude_local
+      config:
+        dangerouslySkipPermissions: true
+        maxTurnsPerRun: 60
+    inputs:
+      env:
+        ANTHROPIC_API_KEY:
+          kind: secret
+          requirement: optional
+          default: ""
+
+  engineering-lead:
+    adapter:
+      type: claude_local
+      config:
+        dangerouslySkipPermissions: true
+        maxTurnsPerRun: 60
+    inputs:
+      env:
+        ANTHROPIC_API_KEY:
+          kind: secret
+          requirement: optional
+          default: ""
+
+# Intentionally no budgetMonthlyCents anywhere in this file: dollar
+# budgets track per-token API cost, which doesn't exist under subscription
+# auth. Watch the quota windows Paperclip already polls for claude_local
+# (5-hour session, weekly Sonnet/Opus/all-models, extra usage) in the
+# dashboard instead of a cost cap.
+
+routines:
+  weekly-review:
+    triggers:
+      - kind: schedule
+        # Monday 9am. Edit the cron expression/timezone to match your
+        # actual schedule — this is a placeholder.
+        cronExpression: "0 9 * * 1"
+        timezone: UTC
