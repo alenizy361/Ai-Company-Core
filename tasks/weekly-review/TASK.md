@@ -3,6 +3,7 @@ schema: agentcompanies/v1
 kind: task
 name: Weekly Review
 assignee: ceo
+project: company-onboarding
 recurring: true
 ---
 
