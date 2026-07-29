@@ -17,9 +17,9 @@ let dir: string;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 before(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'rabit-vt-'));
+  dir = mkdtempSync(join(tmpdir(), 'sira-vt-'));
   server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(REPO_ROOT, 'src', 'server', 'index.ts')], {
-    env: { ...process.env, RABIT_VAR: dir, PORT: String(PORT), ADAPTER: 'mock' },
+    env: { ...process.env, SIRA_VAR: dir, PORT: String(PORT), ADAPTER: 'mock' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   for (let i = 0; i < 40; i++) {

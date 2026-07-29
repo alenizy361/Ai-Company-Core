@@ -15,13 +15,13 @@ function spawnWorker(varDir: string): ChildProcess {
   return spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(REPO_ROOT, 'src', 'worker', 'index.ts')], {
     env: {
       ...process.env,
-      RABIT_VAR: varDir,
+      SIRA_VAR: varDir,
       ADAPTER: 'mock',
       MOCK_TURN_DELAY_MS: '2500',
-      RABIT_LEASE_MS: '2000',
-      RABIT_HEARTBEAT_MS: '500',
-      RABIT_SWEEP_MS: '800',
-      RABIT_STALE_WORKER_MS: '1500',
+      SIRA_LEASE_MS: '2000',
+      SIRA_HEARTBEAT_MS: '500',
+      SIRA_SWEEP_MS: '800',
+      SIRA_STALE_WORKER_MS: '1500',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

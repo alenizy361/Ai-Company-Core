@@ -1,4 +1,4 @@
-# RABIT — Autonomous Company OS
+# SIRA — Autonomous Company OS
 
 A real, self-contained, voice-first multi-agent company operating system.
 An owner speaks (or types) an objective; the CEO agent plans a minimal task
@@ -15,7 +15,7 @@ npm ci
 npm run seed                 # org + 13 agents + versioned prompts
 npm run eval -- --promote    # evaluation-gated agent activation (all 13 must pass)
 npm run dev                  # API :4600 + execution worker (separate processes)
-# open http://localhost:4600 — tap the mic (or type) and give RABIT an objective
+# open http://localhost:4600 — tap the mic (or type) and give SIRA an objective
 ```
 
 Deploying on a dedicated machine (Linux/macOS/WSL2)? One command does all of
@@ -23,7 +23,7 @@ the above, verifies the install with the full test + eval suites, and can set
 up always-on systemd services with restart policies:
 
 ```
-./scripts/install-rabit.sh --services
+./scripts/install-sira.sh --services
 ```
 
 ## The truth architecture
@@ -122,6 +122,6 @@ suite plus the mechanical eval tier with no model credentials.
 The original Paperclip "Agent Companies" config (COMPANY.md, agents/*/
 AGENTS.md, .paperclip.yaml, scripts/setup.sh) is preserved untouched for
 importing into a self-hosted Paperclip instance; it is independent of the
-RABIT OS in this repo. The old simulated demo dashboard has been removed —
+SIRA OS in this repo. The old simulated demo dashboard has been removed —
 the real client lives in `web/` (its visual identity carries on in the
 audio-reactive core).

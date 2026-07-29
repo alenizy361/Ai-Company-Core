@@ -1,4 +1,4 @@
--- RABIT OS schema v1. All timestamps are epoch milliseconds (INTEGER).
+-- SIRA OS schema v1. All timestamps are epoch milliseconds (INTEGER).
 -- Agent runtime status is never stored: it is derived from tasks/executions/worker heartbeats.
 
 CREATE TABLE orgs (

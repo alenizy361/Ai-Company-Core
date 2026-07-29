@@ -39,10 +39,10 @@ async function runCase(agentKey: string, evalCase: EvalCase, scratchRoot: string
   rmSync(caseDir, { recursive: true, force: true });
   mkdirSync(caseDir, { recursive: true });
 
-  const prevVar = process.env.RABIT_VAR;
-  const prevDb = process.env.RABIT_DB;
-  process.env.RABIT_VAR = caseDir;
-  delete process.env.RABIT_DB;
+  const prevVar = process.env.SIRA_VAR;
+  const prevDb = process.env.SIRA_DB;
+  process.env.SIRA_VAR = caseDir;
+  delete process.env.SIRA_DB;
 
   const details: string[] = [];
   try {
@@ -148,8 +148,8 @@ async function runCase(agentKey: string, evalCase: EvalCase, scratchRoot: string
     details.push(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
     return { caseId: evalCase.id, category: evalCase.category, passed: false, weight: evalCase.weight, details };
   } finally {
-    if (prevVar !== undefined) process.env.RABIT_VAR = prevVar; else delete process.env.RABIT_VAR;
-    if (prevDb !== undefined) process.env.RABIT_DB = prevDb;
+    if (prevVar !== undefined) process.env.SIRA_VAR = prevVar; else delete process.env.SIRA_VAR;
+    if (prevDb !== undefined) process.env.SIRA_DB = prevDb;
   }
 }
 

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# RABIT OS installer/deployer for a dedicated machine (Linux/macOS/WSL).
+# SIRA OS installer/deployer for a dedicated machine (Linux/macOS/WSL).
 #
-#   ./scripts/install-rabit.sh                 install + verify, then tell you how to run
-#   ./scripts/install-rabit.sh --services      also install systemd services (24/7 operation)
-#   ./scripts/install-rabit.sh --skip-tests    skip the test suite (not recommended)
+#   ./scripts/install-sira.sh                 install + verify, then tell you how to run
+#   ./scripts/install-sira.sh --services      also install systemd services (24/7 operation)
+#   ./scripts/install-sira.sh --skip-tests    skip the test suite (not recommended)
 #
 # What it does, in order:
 #   1. Checks Node.js >= 22.18 (needed for built-in SQLite + TS type-stripping)
 #   2. Checks the `claude` CLI login (your Max plan powers the agents;
-#      without it RABIT still runs, loudly labeled MOCK MODE)
+#      without it SIRA still runs, loudly labeled MOCK MODE)
 #   3. npm ci  ->  seeds the database (org, 13 agents, versioned prompts)
 #   4. Runs the full test suite (42 tests incl. the acceptance tests)
 #   5. Runs every agent's evaluation suite and activates agents that pass 100%
@@ -45,7 +45,7 @@ NODE_VERSION="$(node --version | sed 's/^v//')"
 NODE_MAJOR="${NODE_VERSION%%.*}"
 NODE_MINOR="$(echo "$NODE_VERSION" | cut -d. -f2)"
 if [ "$NODE_MAJOR" -lt 22 ] || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 18 ]; }; then
-  die "Node $NODE_VERSION is too old — RABIT needs >= 22.18 (built-in SQLite + TS support). See the install commands above."
+  die "Node $NODE_VERSION is too old — SIRA needs >= 22.18 (built-in SQLite + TS support). See the install commands above."
 fi
 NODE_BIN="$(command -v node)"
 ok "Node $NODE_VERSION at $NODE_BIN"
@@ -65,7 +65,7 @@ elif command -v claude >/dev/null 2>&1; then
   fi
 else
   warn "claude CLI not found. Install Claude Code and run 'claude login',"
-  warn "or set ANTHROPIC_API_KEY. Until then RABIT runs in labeled MOCK MODE."
+  warn "or set ANTHROPIC_API_KEY. Until then SIRA runs in labeled MOCK MODE."
 fi
 
 # 3. Dependencies + database ----------------------------------------------
@@ -94,10 +94,20 @@ if [ "$WITH_SERVICES" = true ]; then
   if ! command -v systemctl >/dev/null 2>&1 || ! systemctl --user show-environment >/dev/null 2>&1; then
     warn "systemd user services not available on this machine — skipping service install."
     warn "(On WSL2: add '[boot]' + 'systemd=true' to /etc/wsl.conf, then 'wsl --shutdown' and reopen.)"
-    warn "Run RABIT with:  $RUN_HINT"
+    warn "Run SIRA with:  $RUN_HINT"
   else
     UNIT_DIR="$HOME/.config/systemd/user"
     mkdir -p "$UNIT_DIR"
+    # Migrate installs made under the previous product name: the old units
+    # must be stopped and removed, otherwise two workers run on one database.
+    for old in rabit-api rabit-worker; do
+      if [ -f "$UNIT_DIR/$old.service" ]; then
+        warn "migrating old $old.service -> sira-* (stopping and removing it)"
+        systemctl --user stop "$old.service" 2>/dev/null || true
+        systemctl --user disable "$old.service" 2>/dev/null || true
+        rm -f "$UNIT_DIR/$old.service"
+      fi
+    done
     # Services get a minimal PATH; include the claude CLI's directory so the
     # subscription adapter works under systemd, not just in your terminal.
     SERVICE_PATH="/usr/local/bin:/usr/bin:/bin"
@@ -105,9 +115,9 @@ if [ "$WITH_SERVICES" = true ]; then
       SERVICE_PATH="$(dirname "$(command -v claude)"):$SERVICE_PATH"
     fi
     for svc in api worker; do
-      ENTRY="src/server/index.ts"; DESC="RABIT OS API server"
-      if [ "$svc" = worker ]; then ENTRY="src/worker/index.ts"; DESC="RABIT OS execution worker"; fi
-      cat > "$UNIT_DIR/rabit-$svc.service" <<UNIT
+      ENTRY="src/server/index.ts"; DESC="SIRA OS API server"
+      if [ "$svc" = worker ]; then ENTRY="src/worker/index.ts"; DESC="SIRA OS execution worker"; fi
+      cat > "$UNIT_DIR/sira-$svc.service" <<UNIT
 [Unit]
 Description=$DESC
 After=network.target
@@ -127,21 +137,21 @@ WantedBy=default.target
 UNIT
     done
     systemctl --user daemon-reload
-    systemctl --user enable rabit-api.service rabit-worker.service
+    systemctl --user enable sira-api.service sira-worker.service
     # restart (not just enable --now) so re-running the installer picks up a
     # new `claude login`, updated code, or changed env vars
-    systemctl --user restart rabit-api.service rabit-worker.service
-    ok "services rabit-api + rabit-worker enabled and (re)started"
+    systemctl --user restart sira-api.service sira-worker.service
+    ok "services sira-api + sira-worker enabled and (re)started"
     if command -v loginctl >/dev/null 2>&1; then
       warn "so services keep running after you log out:  sudo loginctl enable-linger $USER"
     fi
-    RUN_HINT="systemctl --user status rabit-api rabit-worker
-      journalctl --user -u rabit-worker -f     # live worker logs"
+    RUN_HINT="systemctl --user status sira-api sira-worker
+      journalctl --user -u sira-worker -f     # live worker logs"
   fi
 fi
 
 # Summary -------------------------------------------------------------------
-say "RABIT OS installed"
+say "SIRA OS installed"
 echo "    Open:      http://localhost:4600"
 echo "    Run/watch: $RUN_HINT"
 if [ "$LIVE_MODEL" = true ]; then

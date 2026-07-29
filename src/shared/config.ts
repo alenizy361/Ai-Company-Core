@@ -49,12 +49,12 @@ export function loadSystemConfig(): SystemConfig {
   // Timing overrides so integration tests can exercise lease/sweep/recovery
   // behavior in seconds instead of minutes.
   for (const [env, key] of [
-    ['RABIT_LEASE_MS', 'leaseMs'],
-    ['RABIT_HEARTBEAT_MS', 'heartbeatMs'],
-    ['RABIT_SWEEP_MS', 'sweepMs'],
-    ['RABIT_STALE_WORKER_MS', 'staleWorkerMs'],
-    ['RABIT_APPROVAL_TIMEOUT_MS', 'approvalTimeoutMs'],
-    ['RABIT_MAX_WALL_CLOCK_MS', 'maxWallClockMs'],
+    ['SIRA_LEASE_MS', 'leaseMs'],
+    ['SIRA_HEARTBEAT_MS', 'heartbeatMs'],
+    ['SIRA_SWEEP_MS', 'sweepMs'],
+    ['SIRA_STALE_WORKER_MS', 'staleWorkerMs'],
+    ['SIRA_APPROVAL_TIMEOUT_MS', 'approvalTimeoutMs'],
+    ['SIRA_MAX_WALL_CLOCK_MS', 'maxWallClockMs'],
   ] as const) {
     if (process.env[env]) (cfg as unknown as Record<string, number>)[key] = Number(process.env[env]);
   }
@@ -62,11 +62,11 @@ export function loadSystemConfig(): SystemConfig {
 }
 
 export function loadPaths(): Paths {
-  const varDir = process.env.RABIT_VAR ? resolve(process.env.RABIT_VAR) : join(REPO_ROOT, 'var');
+  const varDir = process.env.SIRA_VAR ? resolve(process.env.SIRA_VAR) : join(REPO_ROOT, 'var');
   return {
     root: REPO_ROOT,
     varDir,
-    dbPath: process.env.RABIT_DB ?? join(varDir, 'data.db'),
+    dbPath: process.env.SIRA_DB ?? join(varDir, 'data.db'),
     artifactsDir: join(varDir, 'artifacts'),
     workspaceDir: join(varDir, 'workspace'),
     promptsDir: join(REPO_ROOT, 'prompts'),

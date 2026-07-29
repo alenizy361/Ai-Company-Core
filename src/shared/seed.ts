@@ -12,7 +12,10 @@ export function seedOrgAndAgents(db: Db): void {
   db.transaction(() => {
     const org = db.get('SELECT id FROM orgs WHERE id = ?', cfg.orgId);
     if (!org) {
-      db.run('INSERT INTO orgs (id, name, created_at) VALUES (?, ?, ?)', cfg.orgId, 'Rabit AI Company', now);
+      db.run('INSERT INTO orgs (id, name, created_at) VALUES (?, ?, ?)', cfg.orgId, 'SIRA', now);
+    } else {
+      // One-time rebrand of DBs seeded under the previous product name.
+      db.run(`UPDATE orgs SET name = 'SIRA' WHERE id = ? AND name = 'Rabit AI Company'`, cfg.orgId);
     }
     for (const agent of loadAgentsConfig()) {
       const existing = db.get<{ id: string }>('SELECT id FROM agents WHERE key = ?', agent.key);

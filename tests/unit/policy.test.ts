@@ -27,7 +27,7 @@ test('pathAllowed by effect', () => {
 });
 
 test('containment rejects traversal and absolute paths', () => {
-  const root = mkdtempSync(join(tmpdir(), 'rabit-policy-'));
+  const root = mkdtempSync(join(tmpdir(), 'sira-policy-'));
   assert.throws(() => resolveWorkspacePath(root, '../outside.txt'));
   assert.throws(() => resolveWorkspacePath(root, '/etc/passwd'));
   assert.throws(() => resolveWorkspacePath(root, 'a/../../escape'));
@@ -37,8 +37,8 @@ test('containment rejects traversal and absolute paths', () => {
 });
 
 test('containment rejects symlink escape', () => {
-  const root = mkdtempSync(join(tmpdir(), 'rabit-symlink-'));
-  const outside = mkdtempSync(join(tmpdir(), 'rabit-outside-'));
+  const root = mkdtempSync(join(tmpdir(), 'sira-symlink-'));
+  const outside = mkdtempSync(join(tmpdir(), 'sira-outside-'));
   mkdirSync(join(root, 'web'), { recursive: true });
   symlinkSync(outside, join(root, 'web', 'link'));
   assert.throws(() => resolveWorkspacePath(root, 'web/link/steal.txt'));

@@ -1,4 +1,4 @@
-// RABIT OS execution worker. Owns ALL model calls and tool execution:
+// SIRA OS execution worker. Owns ALL model calls and tool execution:
 // planning for open objectives and the agent loop for ready tasks, up to
 // maxConcurrentBranches at once. Heartbeats + leases make death visible and
 // recovery safe; the CLI adapter is canary-checked before it is trusted.

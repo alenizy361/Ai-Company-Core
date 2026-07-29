@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { ulid } from '../../shared/ids.ts';
+import { emitEvent } from '../../shared/events.ts';
 import type { Tool, ToolResult } from '../types.ts';
 
 const MAX_INLINE = 200_000;
@@ -56,6 +57,11 @@ export function storeArtifact(
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id, ctx.orgId, meta.taskId, meta.executionId, meta.agentKey, meta.name, meta.kind, path, hash, size, Date.now(),
   );
+  emitEvent(ctx.db, {
+    type: 'artifact.created', orgId: ctx.orgId, executionId: meta.executionId ?? undefined,
+    taskId: meta.taskId ?? undefined, agentKey: meta.agentKey ?? undefined,
+    payload: { artifactId: id, name: meta.name, kind: meta.kind, size },
+  });
   return { id, sha256: hash, size };
 }
 

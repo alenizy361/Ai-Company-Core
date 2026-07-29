@@ -3,6 +3,7 @@
 import type { Db } from '../shared/db.ts';
 import { ulid } from '../shared/ids.ts';
 import { emitEvent } from '../shared/events.ts';
+import { notify } from '../shared/notify.ts';
 import type { SystemConfig } from '../shared/config.ts';
 
 export interface CompletionInfo {
@@ -87,15 +88,12 @@ export function maybeCompleteObjective(db: Db, cfg: SystemConfig, objectiveId: s
       type: 'objective.finished', orgId: cfg.orgId,
       payload: { objectiveId, status: finalStatus, completed: total - failed - cancelled, failed, cancelled },
     });
-    db.run(
-      `INSERT INTO notifications (id, org_id, kind, priority, title, body, payload, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ulid('ntf'), cfg.orgId,
-      finalStatus === 'completed' ? 'objective_completed' : 'objective_failed',
-      finalStatus === 'completed' ? 'normal' : 'high',
-      finalStatus === 'completed' ? `Objective completed: ${objective.title}` : `Objective failed: ${objective.title}`,
-      `${total - failed - cancelled}/${total} tasks completed${failed ? `, ${failed} failed` : ''}${cancelled ? `, ${cancelled} cancelled` : ''}`,
-      JSON.stringify({ objectiveId }), now,
-    );
+    notify(db, cfg.orgId, {
+      kind: finalStatus === 'completed' ? 'objective_completed' : 'objective_failed',
+      priority: finalStatus === 'completed' ? 'normal' : 'high',
+      title: finalStatus === 'completed' ? `Objective completed: ${objective.title}` : `Objective failed: ${objective.title}`,
+      body: `${total - failed - cancelled}/${total} tasks completed${failed ? `, ${failed} failed` : ''}${cancelled ? `, ${cancelled} cancelled` : ''}`,
+      payload: { objectiveId },
+    });
   });
 }

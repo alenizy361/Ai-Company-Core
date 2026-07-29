@@ -106,7 +106,7 @@ test('voice providers: session-gated, honest 503s, correct upstream shapes', asy
   assert.equal(signature, expected);
   const claims = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { iss: string; video: { room: string } };
   assert.equal(claims.iss, 'lk-key');
-  assert.equal(claims.video.room, 'rabit-voice');
+  assert.equal(claims.video.room, 'sira-voice');
 
   // Wake key delivered only to an authenticated session.
   const wake = await fetch(`${keyed.base}/api/voice/wake-key?${auth}`, { method: 'POST' });

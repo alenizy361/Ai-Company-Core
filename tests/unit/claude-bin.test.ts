@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { resolveClaudeBin } from '../../src/adapters/claude-cli.ts';
 
 test('resolveClaudeBin: override > PATH > user-local installs > bare fallback', () => {
-  const base = mkdtempSync(join(tmpdir(), 'rabit-bin-'));
+  const base = mkdtempSync(join(tmpdir(), 'sira-bin-'));
   try {
     const pathDir = join(base, 'pathdir');
     const home = join(base, 'home');
@@ -28,9 +28,9 @@ test('resolveClaudeBin: override > PATH > user-local installs > bare fallback', 
     writeFileSync(onPath, '#!/bin/sh\n');
     assert.equal(resolveClaudeBin({ PATH: pathDir, HOME: home }), onPath);
 
-    // Explicit RABIT_CLAUDE_BIN override wins over everything.
+    // Explicit SIRA_CLAUDE_BIN override wins over everything.
     assert.equal(
-      resolveClaudeBin({ RABIT_CLAUDE_BIN: localBin, PATH: pathDir, HOME: home }),
+      resolveClaudeBin({ SIRA_CLAUDE_BIN: localBin, PATH: pathDir, HOME: home }),
       localBin,
     );
   } finally {

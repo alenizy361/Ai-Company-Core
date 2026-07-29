@@ -142,8 +142,8 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
     if (!url || !apiKey || !apiSecret) {
       return errorJson(res, 503, 'PROVIDER_NOT_CONFIGURED', 'set LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET to enable the LiveKit transport; the client keeps in-page capture');
     }
-    const token = mintLivekitToken(apiKey, apiSecret, `owner-${query.get('session')}`, 'rabit-voice', 3600, Math.floor(Date.now() / 1000));
-    json(res, 200, { provider: 'livekit', url, token, room: 'rabit-voice' });
+    const token = mintLivekitToken(apiKey, apiSecret, `owner-${query.get('session')}`, 'sira-voice', 3600, Math.floor(Date.now() / 1000));
+    json(res, 200, { provider: 'livekit', url, token, room: 'sira-voice' });
   });
 
   // ---- Porcupine wake-word access key (on-device processing needs it client-side) ----

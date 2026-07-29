@@ -1,4 +1,4 @@
-// POST /api/converse — the owner's conversation with RABIT (voice or text;
+// POST /api/converse — the owner's conversation with SIRA (voice or text;
 // both share one persisted conversation). Streams SSE events:
 //   meta -> state -> say (sentence-safe speakable segments) -> route -> done
 // The model replies in a converse contract; the server executes route actions
@@ -20,7 +20,7 @@ import type { ModelAdapter, ChatMessage } from '../../adapters/types.ts';
 import { recordTransition, verifyVoiceToken } from '../../voice/session.ts';
 
 const CONVERSE_CONTRACT = `
-# CONVERSE MODE — you are RABIT, the owner's company operating system, speaking with the owner.
+# CONVERSE MODE — you are SIRA, the owner's company operating system, speaking with the owner.
 
 Respond with EXACTLY ONE JSON object:
 {"route":"reply","say":"<spoken answer>"}

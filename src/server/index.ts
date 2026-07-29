@@ -1,4 +1,4 @@
-// RABIT OS API server. Serves the web client, the JSON API, and the SSE
+// SIRA OS API server. Serves the web client, the JSON API, and the SSE
 // event stream. Never executes agent work — that is the worker's job.
 import { createServer } from 'node:http';
 import { openDb } from '../shared/db.ts';
@@ -14,6 +14,7 @@ import { registerConverseRoutes } from './routes/converse.ts';
 import { registerVoiceRoutes } from './routes/voice.ts';
 import { registerEvalRoutes } from './routes/evals.ts';
 import { registerVoiceProviderRoutes } from './routes/voice-providers.ts';
+import { registerSearchRoutes } from './routes/search.ts';
 import { registerHealthRoute, type AdapterInfo } from './routes/health.ts';
 import { describeAdapterSelection, selectAdapter } from '../adapters/select.ts';
 import type { ModelAdapter } from '../adapters/types.ts';
@@ -50,6 +51,7 @@ registerConverseRoutes(router, db, getConverseAdapter);
 registerVoiceRoutes(router, db);
 registerEvalRoutes(router, db);
 registerVoiceProviderRoutes(router, db);
+registerSearchRoutes(router, db);
 
 const ownerToken = process.env.OWNER_TOKEN ?? '';
 
@@ -78,7 +80,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(cfg.port, () => {
-  console.log(`[rabit] api listening on http://localhost:${cfg.port} (db: ${paths.dbPath})`);
+  console.log(`[sira] api listening on http://localhost:${cfg.port} (db: ${paths.dbPath})`);
 });
 
 function shutdown(): void {

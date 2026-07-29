@@ -51,6 +51,54 @@ export function registerReadRoutes(router: Router, db: Db): void {
     json(res, 200, db.all('SELECT * FROM objectives ORDER BY created_at DESC LIMIT 100'));
   });
 
+  router.get('/api/tasks', ({ res, query }) => {
+    const conds: string[] = [];
+    const args: string[] = [];
+    for (const key of ['status', 'objective_id', 'agent_key'] as const) {
+      const v = query.get(key);
+      if (v) {
+        conds.push(`${key} = ?`);
+        args.push(v);
+      }
+    }
+    const limit = Math.min(Math.max(Number(query.get('limit') ?? 100) || 100, 1), 500);
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    json(res, 200, db.all(
+      `SELECT id, objective_id, plan_id, step_id, agent_key, title, status, priority,
+              attempt_count, max_attempts, blocker, updated_at, created_at
+       FROM tasks ${where} ORDER BY updated_at DESC LIMIT ${limit}`,
+      ...args,
+    ));
+  });
+
+  router.get('/api/artifacts', ({ res, query }) => {
+    const conds: string[] = [];
+    const args: string[] = [];
+    for (const key of ['task_id', 'kind', 'agent_key'] as const) {
+      const v = query.get(key);
+      if (v) {
+        conds.push(`${key} = ?`);
+        args.push(v);
+      }
+    }
+    const limit = Math.min(Math.max(Number(query.get('limit') ?? 100) || 100, 1), 500);
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    json(res, 200, db.all(
+      `SELECT id, task_id, execution_id, agent_key, name, kind, content_hash, size_bytes, created_at
+       FROM artifacts ${where} ORDER BY created_at DESC LIMIT ${limit}`,
+      ...args,
+    ));
+  });
+
+  router.get('/api/conversations', ({ res, query }) => {
+    const limit = Math.min(Math.max(Number(query.get('limit') ?? 50) || 50, 1), 200);
+    json(res, 200, db.all(
+      `SELECT c.id, c.title, c.created_at, c.updated_at, COUNT(m.id) AS message_count
+       FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.id
+       GROUP BY c.id ORDER BY c.updated_at DESC LIMIT ${limit}`,
+    ));
+  });
+
   router.get('/api/objectives/:id', ({ res, params }) => {
     const objective = db.get('SELECT * FROM objectives WHERE id = ?', params.id);
     if (!objective) return errorJson(res, 404, 'NOT_FOUND', 'unknown objective');

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import type { Db } from '../shared/db.ts';
 import { ulid } from '../shared/ids.ts';
 import { emitEvent } from '../shared/events.ts';
+import { notify } from '../shared/notify.ts';
 import { loadPermissions, type Paths, type SystemConfig } from '../shared/config.ts';
 import { assertTransitionTask, type TaskStatus, type ExecutionStatus } from '../shared/statuses.ts';
 import { extractFirstJsonObject } from '../shared/extract-json.ts';
@@ -209,12 +210,11 @@ export async function runExecution(
         payload: { status: 'failed', reason: reason.slice(0, 300), willRetry: canRetry },
       });
       if (!canRetry) {
-        db.run(
-          `INSERT INTO notifications (id, org_id, kind, priority, title, body, payload, created_at)
-           VALUES (?, ?, 'task_failed', 'high', ?, ?, ?, ?)`,
-          ulid('ntf'), cfg.orgId, `Task failed: ${task.title}`, reason.slice(0, 500),
-          JSON.stringify({ taskId: task.id, executionId }), now,
-        );
+        notify(db, cfg.orgId, {
+          kind: 'task_failed', priority: 'high',
+          title: `Task failed: ${task.title}`, body: reason.slice(0, 500),
+          payload: { taskId: task.id, executionId },
+        });
       }
     });
     if (!canRetry) maybeCompleteObjective(db, cfg, task.objective_id);
@@ -255,12 +255,13 @@ export async function runExecution(
       approvalRequired: policy.approvalRequired.some((m) => m.tool === t.name),
     }));
 
+  const orgName = db.get<{ name: string }>('SELECT name FROM orgs WHERE id = ?', cfg.orgId)?.name ?? 'SIRA';
   let assembled;
   try {
     assembled = assemblePrompt(db, {
       agentKey: task.agent_key,
       contract: 'execution',
-      companyName: 'Rabit AI Company',
+      companyName: orgName,
       objective,
       task: {
         id: task.id,

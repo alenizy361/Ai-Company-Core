@@ -20,11 +20,11 @@ export interface TestEnv {
 }
 
 export function makeEnv(): TestEnv {
-  const dir = mkdtempSync(join(tmpdir(), 'rabit-test-'));
-  const prevVar = process.env.RABIT_VAR;
-  const prevDb = process.env.RABIT_DB;
-  process.env.RABIT_VAR = dir;
-  delete process.env.RABIT_DB;
+  const dir = mkdtempSync(join(tmpdir(), 'sira-test-'));
+  const prevVar = process.env.SIRA_VAR;
+  const prevDb = process.env.SIRA_DB;
+  process.env.SIRA_VAR = dir;
+  delete process.env.SIRA_DB;
   const paths = loadPaths();
   const cfg = loadSystemConfig();
   const db = openDb(paths.dbPath, paths.migrationsDir);
@@ -35,8 +35,8 @@ export function makeEnv(): TestEnv {
     cleanup: () => {
       try { db.close(); } catch { /* closed */ }
       rmSync(dir, { recursive: true, force: true });
-      if (prevVar !== undefined) process.env.RABIT_VAR = prevVar; else delete process.env.RABIT_VAR;
-      if (prevDb !== undefined) process.env.RABIT_DB = prevDb;
+      if (prevVar !== undefined) process.env.SIRA_VAR = prevVar; else delete process.env.SIRA_VAR;
+      if (prevDb !== undefined) process.env.SIRA_DB = prevDb;
     },
   };
 }

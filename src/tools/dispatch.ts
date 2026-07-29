@@ -157,6 +157,11 @@ export async function executeToolCall(
     return { decision: 'allowed', toolCallId, result: { ok: false, error: 'tool missing' } };
   }
 
+  emitEvent(db, {
+    type: 'tool.started', orgId: ctx.orgId, executionId: ctx.executionId, taskId: ctx.taskId, agentKey: ctx.agentKey,
+    payload: { toolCallId, tool: toolName },
+  });
+
   let result: ToolResult;
   try {
     result = await Promise.race([
