@@ -62,16 +62,19 @@ def db():
 
 
 def recover_stale():
-    """A crash/OOM/restart mid-run leaves a project or step 'running'. Fail
-    anything that's been running longer than the max time so the owner gets an
-    honest result instead of a wedged project."""
-    cutoff = time.time() - (int(os.environ.get("RABIT_JOB_TIMEOUT", "1800")) + 300)
+    """This worker is the ONLY executor and it just started — so anything still
+    marked running (or half-cancelled) in the DB is dead. Fail it immediately
+    and honestly instead of leaving the owner a wedged 'running' project."""
     try:
         with db() as c:
             c.execute("""UPDATE steps SET status='failed', error='interrupted (server restarted)'
-                         WHERE status='running' AND started < ?""", (cutoff,))
+                         WHERE status='running'""")
             c.execute("""UPDATE projects SET status='failed', error='interrupted (server restarted)',
-                         updated=? WHERE status='running' AND updated < ?""", (time.time(), cutoff))
+                         updated=? WHERE status='running'""", (time.time(),))
+            c.execute("UPDATE steps SET status='cancelled' WHERE status='queued' AND project_id IN "
+                      "(SELECT id FROM projects WHERE status='cancelling')")
+            c.execute("UPDATE projects SET status='cancelled', updated=? WHERE status='cancelling'",
+                      (time.time(),))
     except sqlite3.Error:
         pass
 
@@ -92,6 +95,54 @@ def steps_of(pid):
     with db() as c:
         rows = c.execute("SELECT id,agent,title,spec FROM steps WHERE project_id=? ORDER BY seq", (pid,)).fetchall()
     return [dict(zip(("id", "agent", "title", "spec"), r)) for r in rows]
+
+
+def project_status(pid):
+    try:
+        with db() as c:
+            row = c.execute("SELECT status FROM projects WHERE id=?", (pid,)).fetchone()
+        return row[0] if row else "missing"
+    except sqlite3.Error:
+        return "unknown"
+
+
+def cancel_requested(pid):
+    return project_status(pid) == "cancelling"
+
+
+def seed_previous(pid, ws):
+    """Real continuity: copy the most recent finished project's published files
+    into ws/previous/ so steps can genuinely read and build on earlier delivered
+    work instead of reviewing an empty folder."""
+    try:
+        with db() as c:
+            row = c.execute("""SELECT id FROM projects WHERE status='done' AND deliverable!=''
+                               AND id!=? ORDER BY updated DESC LIMIT 1""", (pid,)).fetchone()
+    except sqlite3.Error:
+        return []
+    if not row:
+        return []
+    src = os.path.realpath(os.path.join(DELIVER_DIR, row[0]))
+    if not os.path.isdir(src) or not src.startswith(os.path.realpath(DELIVER_DIR) + os.sep):
+        return []
+    dest = os.path.join(ws, "previous")
+    copied = []
+    for root, dirs, files in os.walk(src):
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+        for f in files:
+            sp = os.path.join(root, f)
+            if os.path.islink(sp):
+                continue
+            rel = os.path.relpath(sp, src)
+            out = os.path.join(dest, rel)
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            try:
+                shutil.copy2(sp, out)
+                os.chmod(out, 0o444)  # read-only reference — steps write NEW files
+                copied.append("previous/" + rel)
+            except OSError:
+                pass
+    return copied
 
 
 def set_step(step_id, **kw):
@@ -176,26 +227,45 @@ def run_project(pid, claude_bin):
     try:
         shutil.rmtree(os.path.join(JOBS_DIR, pid), ignore_errors=True)
         os.makedirs(ws, exist_ok=True)
+        seed_previous(pid, ws)
         steps = steps_of(pid)
-        any_ok = False
+        cancelled = False
         for st in steps:
+            if cancel_requested(pid):
+                cancelled = True
+            if cancelled:
+                set_step(st["id"], status="cancelled")
+                continue
             set_step(st["id"], status="running", started=time.time())
             before = snapshot(ws)
             # the step's claude may read what earlier steps wrote in this workspace
             ctx = ""
             existing = sorted(before.keys())
             if existing:
-                ctx = ("\n\nFiles already in the workspace from earlier steps (you may read them): "
+                ctx = ("\n\nFiles already in the workspace (you may read them; previous/ holds "
+                       "the owner's most recent delivered project as READ-ONLY reference — write "
+                       "your outputs at the workspace root, never inside previous/): "
                        + ", ".join(existing[:40]))
-            ok, log = rabit_claude.run_job(claude_bin, st["spec"] + ctx, ws, HOME, max_turns=MAX_TURNS)
+            ok, log = rabit_claude.run_job(claude_bin, st["spec"] + ctx, ws, HOME,
+                                           max_turns=MAX_TURNS,
+                                           should_abort=lambda: cancel_requested(pid))
             files = changed_files(before, ws)
+            if log == "cancelled" and not ok:
+                set_step(st["id"], status="cancelled", ended=time.time())
+                cancelled = True
+                continue
             if ok or files:
-                any_ok = any_ok or bool(files) or ok
                 set_step(st["id"], status="done", files=",".join(files[:30]), ended=time.time())
             else:
                 set_step(st["id"], status="failed", error=("no output. " + log)[-800:], ended=time.time())
+        # publish whatever real work exists (even partial, on cancel) — but never
+        # republish the seeded previous/ copy as if it were new output
+        shutil.rmtree(os.path.join(ws, "previous"), ignore_errors=True)
         published = publish(pid, ws)
-        if published:
+        if cancelled:
+            set_project(pid, status="cancelled",
+                        deliverable=",".join(published[:60]) if published else "")
+        elif published:
             set_project(pid, status="done", deliverable=",".join(published[:60]))
         else:
             set_project(pid, status="failed", error="no files were produced")

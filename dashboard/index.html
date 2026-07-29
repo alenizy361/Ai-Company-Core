@@ -281,7 +281,8 @@ const I18N={
       execFail:"تعذّر إتمام العمل:",execSent:"أرسلت الخطة للتنفيذ الحقيقي — تابع الفريق على اللوحة.",
       chipRun:"يشتغل…",chipWait:"بالانتظار",chipDoneF:"تم",chipFail:"فشل",
       stStarted:"بدأ العمل",stWrote:"أنتج",stFailed:"فشل",
-      planIntro:"الخطة — سينفّذ هؤلاء الموظفون بالترتيب على الخادم:"},
+      planIntro:"الخطة — سينفّذ هؤلاء الموظفون بالترتيب على الخادم:",
+      execCancel:"إيقاف التنفيذ",execCancelled:"تم إيقاف التنفيذ فعلياً على الخادم."},
   en:{caption:"Tap any agent to view its activity — visual simulation",liveFeed:"ACTIVITY SIMULATION",simTag:"SIM",
       coreStatus:"AI CORE STATUS",central:"Central core",
       agents:"Agents",working:"Working now",
@@ -301,7 +302,8 @@ const I18N={
       execFail:"The work could not complete:",execSent:"Plan sent for real execution — watch the team on the board.",
       chipRun:"working…",chipWait:"waiting",chipDoneF:"done",chipFail:"failed",
       stStarted:"started",stWrote:"produced",stFailed:"failed",
-      planIntro:"Plan — these agents will run in order on the server:"}
+      planIntro:"Plan — these agents will run in order on the server:",
+      execCancel:"Stop execution",execCancelled:"Execution was really stopped on the server."}
 };
 let lang="ar";
 function T(k){return I18N[lang][k];}
@@ -683,6 +685,7 @@ async function pollProject(){
     if(s.status==="running"&&a.status!=="working"){a.status="working";updateNode(a);refreshStats();}
     if(s.status==="done"&&a.status!=="done"){a.status="done";updateNode(a);refreshStats();}
     if(s.status==="failed"&&a.status!=="fail"){a.status="fail";updateNode(a);refreshStats();}
+    if(s.status==="cancelled"&&a.status!=="idle"){a.status="idle";updateNode(a);refreshStats();}
     /* one REAL feed line per new transition */
     if(!p.seen[key]){
       p.seen[key]=1;
@@ -699,10 +702,16 @@ async function pollProject(){
     }
   });
 
-  if(proj.status==="done"||proj.status==="failed"){
+  if(proj.status==="done"||proj.status==="failed"||proj.status==="cancelled"){
+    const card=p.card;
+    if(card&&card._stopBtn)card._stopBtn.remove();
     activeProject=null;setCore("idle");
     if(proj.status==="done"){
       projectDone(proj);
+    }else if(proj.status==="cancelled"){
+      addMsg(T("execCancelled"),false);say(T("execCancelled"));
+      if(proj.deliverable)projectDone(proj);   /* partial real work is still real */
+      resetBoard();
     }else{
       addMsg(T("execFail")+" "+(proj.error||""),false);say(T("execFail"));
     }
@@ -817,6 +826,19 @@ function planCard(plan,title){
     if(!pid){btn.disabled=false;return;}
     card.querySelector(".ot").textContent=T("execRunning");
     btn.remove();
+    /* real stop: asks the server to kill the live claude run */
+    const stop=document.createElement("button");stop.textContent=T("execCancel");
+    stop.style.background="linear-gradient(135deg,#fb7185,#e11d48)";
+    stop.onclick=async()=>{
+      stop.disabled=true;
+      try{
+        await authFetch("/api/cancel",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({id:pid}),signal:AbortSignal.timeout(15000)});
+      }catch(e){stop.disabled=false;}
+    };
+    card.appendChild(stop);
+    card._stopBtn=stop;
+    activeProject.card=card;
   };
   msgs.appendChild(card);msgs.scrollTop=msgs.scrollHeight;
 }

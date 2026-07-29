@@ -605,6 +605,10 @@ Rules:
   plan for things needing real accounts, deployment, payments, sending
   messages, or internet access — advise or write the content directly in
   "reply" and set "plan" to null.
+- The shared workspace also contains previous/ — a READ-ONLY copy of the
+  owner's most recently delivered project, when one exists. When the owner
+  asks to modify, continue, review, or improve earlier delivered work, write
+  specs that read from previous/ and produce new files at the workspace root.
 - For pure questions, chat, or small talk: "plan" is null and "team" is [].
 - "team" must equal the set of agents used by the plan's steps (for the board),
   or []. Do not use "team" to control decorative lights.
@@ -1083,6 +1087,28 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._send(500, {"error": str(exc)[:200]}); return
             self._send(200, {"project_id": pid, "status": "queued"})
+            return
+
+        if path == "/api/cancel":
+            pid = str(data.get("id", "")).strip()
+            if not pid:
+                self._send(400, {"error": "missing id"}); return
+            with db_lock, db() as c:
+                row = c.execute("SELECT status FROM projects WHERE id=?", (pid,)).fetchone()
+                if not row:
+                    self._send(404, {"error": "not found"}); return
+                status = row[0]
+                if status == "queued":
+                    c.execute("UPDATE projects SET status='cancelled', updated=? WHERE id=?",
+                              (time.time(), pid))
+                    c.execute("UPDATE steps SET status='cancelled' WHERE project_id=? AND status='queued'",
+                              (pid,))
+                    status = "cancelled"
+                elif status == "running":
+                    c.execute("UPDATE projects SET status='cancelling', updated=? WHERE id=?",
+                              (time.time(), pid))
+                    status = "cancelling"   # worker kills the live claude run and finalizes
+            self._send(200, {"id": pid, "status": status})
             return
 
         if path == "/api/chat":

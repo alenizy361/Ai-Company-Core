@@ -11,6 +11,7 @@ worker runs jobs one at a time by its own design.
 import json
 import os
 import re
+import signal
 import subprocess
 import threading
 
@@ -47,13 +48,18 @@ def chat(claude_bin, system, history, message, home):
     return re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
 
 
-def run_job(claude_bin, spec, workdir, home, max_turns=40, timeout=1800):
+def run_job(claude_bin, spec, workdir, home, max_turns=40, timeout=1800,
+            should_abort=None):
     """Run a tool-enabled build in `workdir`. File tools only — NO Bash, no
-    internet — so the blast radius is the workspace directory. Returns
-    (ok: bool, log: str)."""
+    internet — so the blast radius is the workspace directory.
+
+    should_abort: optional callable polled every few seconds; when it returns
+    True the claude process group is killed and the job reports cancellation.
+    Returns (ok: bool, log: str). A cancelled job returns (False, "cancelled").
+    """
     os.makedirs(workdir, exist_ok=True)
     prompt = (
-        "You are an autonomous builder working inside an empty sandbox directory "
+        "You are an autonomous builder working inside a sandbox directory "
         "with NO internet access and NO shell. Using only file tools (Read, Write, "
         "Edit), produce the deliverable described below as real files in the current "
         "directory. Prefer a single self-contained index.html when it is a web page "
@@ -67,10 +73,39 @@ def run_job(claude_bin, spec, workdir, home, max_turns=40, timeout=1800):
            "--permission-mode", "acceptEdits",
            "--max-turns", str(max_turns),
            "--output-format", "json"]
-    try:
-        out = subprocess.run(cmd, capture_output=True, text=True,
-                             timeout=timeout, cwd=workdir, env=env)
-    except subprocess.TimeoutExpired:
-        return False, "job timed out after %ds" % timeout
-    log = (out.stdout or "") + "\n" + (out.stderr or "")
-    return out.returncode == 0, log[-4000:]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, cwd=workdir, env=env,
+                            start_new_session=True)  # own group so we can kill the tree
+
+    def _kill():
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                proc.kill()
+            except OSError:
+                pass
+
+    waited = 0.0
+    while True:
+        try:
+            out, err = proc.communicate(timeout=3)
+            break
+        except subprocess.TimeoutExpired:
+            waited += 3
+            if should_abort is not None and should_abort():
+                _kill()
+                try:
+                    proc.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                return False, "cancelled"
+            if waited >= timeout:
+                _kill()
+                try:
+                    proc.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+                return False, "job timed out after %ds" % timeout
+    log = (out or "") + "\n" + (err or "")
+    return proc.returncode == 0, log[-4000:]
