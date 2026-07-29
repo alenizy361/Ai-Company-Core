@@ -1,0 +1,168 @@
+// Key-gated external providers (server-proxied). Selected by the controller
+// ONLY when /api/health reports them active — otherwise the browser-native
+// fallbacks stay in charge. Keys never reach this code; the server relays.
+
+/** Turn-based Deepgram STT: record one utterance (VAD-ended), POST to the
+ * server relay, get the final transcript. Same interface as WebSpeechSTT. */
+export class DeepgramTurnSTT {
+  constructor(store, capture, turnConfig) {
+    this.store = store;
+    this.capture = capture;
+    this.turn = turnConfig ?? { silenceMs: 900, minSpeechMs: 200 };
+    this.available = typeof MediaRecorder !== 'undefined';
+    this.recorder = null;
+  }
+
+  start(lang, onInterim) {
+    if (!this.available || !this.capture.stream) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const chunks = [];
+      const recorder = new MediaRecorder(this.capture.stream, { mimeType: 'audio/webm' });
+      this.recorder = recorder;
+      recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+
+      let sawSpeech = false;
+      let silentSince = null;
+      const startedAt = performance.now();
+      const poll = setInterval(() => {
+        const amp = this.capture.amplitude();
+        if (amp > 0.12) {
+          if (!sawSpeech) {
+            sawSpeech = true;
+            this.store.transition('transcribing', 'stt');
+            onInterim?.('…');
+          }
+          silentSince = null;
+        } else if (sawSpeech) {
+          silentSince ??= performance.now();
+          if (performance.now() - silentSince > this.turn.silenceMs) stop();
+        }
+        if (performance.now() - startedAt > 15000) stop();
+      }, 80);
+
+      const stop = () => {
+        clearInterval(poll);
+        if (recorder.state !== 'inactive') recorder.stop();
+      };
+      this.stop = stop;
+      this.abort = () => { clearInterval(poll); chunks.length = 0; if (recorder.state !== 'inactive') recorder.stop(); };
+
+      recorder.onstop = async () => {
+        clearInterval(poll);
+        if (!chunks.length || !sawSpeech) return resolve(null);
+        const session = this.store.session;
+        try {
+          const res = await fetch(
+            `/api/voice/stt?session=${session.id}&token=${session.token}&lang=${lang}`,
+            { method: 'POST', headers: { 'content-type': 'audio/webm' }, body: new Blob(chunks, { type: 'audio/webm' }) },
+          );
+          if (!res.ok) {
+            this.store.transition('failed', 'stt');
+            return resolve(null);
+          }
+          const data = await res.json();
+          resolve(data.text ? { text: data.text } : null);
+        } catch {
+          this.store.transition('failed', 'stt');
+          resolve(null);
+        }
+      };
+      recorder.start(250);
+    });
+  }
+}
+
+/** Fish Audio TTS via the server relay: real <audio> playback drives the
+ * speaking state and a WebAudio analyser provides the REAL output amplitude. */
+export class FishAudioTTS {
+  constructor(store) {
+    this.store = store;
+    this.queue = [];
+    this.playing = false;
+    this.available = true;
+    this.audio = null;
+    this.currentText = '';
+    this.onRemainder = null;
+    this.audioCtx = null;
+    this.analyser = null;
+    this.buf = null;
+  }
+
+  amplitude() {
+    if (!this.playing || !this.analyser) return 0;
+    this.analyser.getByteFrequencyData(this.buf);
+    let sum = 0;
+    for (let i = 0; i < this.buf.length; i++) sum += this.buf[i];
+    return Math.min(1, sum / this.buf.length / 60);
+  }
+
+  enqueue(text) {
+    this.queue.push(text);
+    if (!this.playing) this._next();
+    return true;
+  }
+
+  async _next() {
+    const text = this.queue.shift();
+    if (text === undefined) {
+      this.playing = false;
+      if (['speaking', 'generating_speech'].includes(this.store.state)) this.store.transition('ready', 'playback');
+      return;
+    }
+    this.store.transition('generating_speech', 'tts');
+    const session = this.store.session;
+    try {
+      const res = await fetch(`/api/voice/tts?session=${session.id}&token=${session.token}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error(`tts ${res.status}`);
+      const blob = await res.blob();
+      const audio = new Audio(URL.createObjectURL(blob));
+      this.audio = audio;
+      this.currentText = text;
+      this.audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+      const src = this.audioCtx.createMediaElementSource(audio);
+      this.analyser = this.audioCtx.createAnalyser();
+      this.analyser.fftSize = 128;
+      src.connect(this.analyser);
+      this.analyser.connect(this.audioCtx.destination);
+      this.buf = new Uint8Array(this.analyser.frequencyBinCount);
+      audio.onplaying = () => {
+        this.playing = true;
+        this.store.transition('speaking', 'playback');
+      };
+      audio.onended = () => {
+        this.playing = false;
+        URL.revokeObjectURL(audio.src);
+        this._next();
+      };
+      audio.onerror = () => {
+        this.playing = false;
+        this.store.transition('failed', 'tts');
+      };
+      await audio.play();
+    } catch {
+      this.playing = false;
+      this.store.transition('failed', 'tts');
+    }
+  }
+
+  interrupt() {
+    const startedAt = performance.now();
+    const wasPlaying = this.playing;
+    let remainder = '';
+    if (this.audio && wasPlaying) {
+      const ratio = this.audio.duration ? this.audio.currentTime / this.audio.duration : 0;
+      remainder = ratio < 0.9 ? this.currentText.slice(Math.floor(this.currentText.length * ratio)) : '';
+      this.audio.pause();
+    }
+    const pending = this.queue.splice(0);
+    this.playing = false;
+    if (wasPlaying) {
+      this.store.transition('interrupted', 'playback');
+      const unspoken = [remainder, ...pending].filter(Boolean).join(' ');
+      if (unspoken && this.onRemainder) this.onRemainder(unspoken);
+    }
+    return { wasPlaying, stopMs: performance.now() - startedAt };
+  }
+}

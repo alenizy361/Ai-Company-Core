@@ -47,6 +47,20 @@ export class VoiceController {
   async init() {
     try {
       await this.store.openSession();
+      // Provider selection is driven by the server's honest provider matrix:
+      // external providers only when their keys are configured server-side.
+      try {
+        const health = await (await fetch('/api/health')).json();
+        const active = health.voiceProviders ?? {};
+        if (active.stt === 'deepgram' || active.tts === 'fish-audio') {
+          const ext = await import('./providers-ext.js');
+          if (active.stt === 'deepgram') this.stt = new ext.DeepgramTurnSTT(this.store, this.capture, this.store.turnConfig);
+          if (active.tts === 'fish-audio') {
+            this.tts = new ext.FishAudioTTS(this.store);
+            this.tts.onRemainder = (unspoken) => this.ui.onReply?.(`… ${unspoken}`, { interrupted: true });
+          }
+        }
+      } catch { /* provider matrix unavailable -> browser-native providers stay */ }
       this.store.transition('ready', 'client_boot');
     } catch {
       this.store.transition('offline', 'client_boot');

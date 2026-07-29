@@ -33,6 +33,10 @@ export function errorJson(res: ServerResponse, status: number, code: string, mes
 }
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
+  // Non-JSON payloads (e.g. audio uploads) are left unconsumed for the
+  // handler to stream directly.
+  const contentType = req.headers['content-type'] ?? '';
+  if (contentType && !contentType.includes('json')) return undefined;
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
