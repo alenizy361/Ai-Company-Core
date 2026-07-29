@@ -12,6 +12,7 @@ import { registerReadRoutes } from './routes/reads.ts';
 import { registerWriteRoutes } from './routes/writes.ts';
 import { registerConverseRoutes } from './routes/converse.ts';
 import { registerVoiceRoutes } from './routes/voice.ts';
+import { registerEvalRoutes } from './routes/evals.ts';
 import { registerHealthRoute, type AdapterInfo } from './routes/health.ts';
 import { describeAdapterSelection, selectAdapter } from '../adapters/select.ts';
 import type { ModelAdapter } from '../adapters/types.ts';
@@ -46,6 +47,7 @@ registerReadRoutes(router, db);
 registerWriteRoutes(router, db);
 registerConverseRoutes(router, db, getConverseAdapter);
 registerVoiceRoutes(router, db);
+registerEvalRoutes(router, db);
 
 const ownerToken = process.env.OWNER_TOKEN ?? '';
 

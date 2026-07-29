@@ -1,104 +1,119 @@
-# Ai Company Core
+# RABIT — Autonomous Company OS
 
-An [Agent Companies](https://github.com/paperclipai/paperclip/blob/main/doc/companies/companies-spec.md)
-package: the versioned, human-editable definition of an AI-employee
-org chart, meant to be imported into a self-hosted
-[Paperclip](https://github.com/paperclipai/paperclip) instance.
+A real, self-contained, voice-first multi-agent company operating system.
+An owner speaks (or types) an objective; the CEO agent plans a minimal task
+graph; the owner confirms; specialist agents execute with real tools under
+code-enforced permissions; every claim is verified against persisted
+artifacts; the interface renders only backend truth.
 
-Paperclip is an open-source orchestration platform that runs teams of AI
-agents like company employees — org chart, ticket-based tasks, scheduled
-routines, approvals/audit logging. This repo *is not* a fork of Paperclip;
-Paperclip itself runs separately (via `npx paperclipai`), and this repo is
-just the config it imports. Keeping them separate means this repo stays
-small and diffable instead of dragging along Paperclip's full codebase.
-
-## The Max plan caveat — read this first
-
-Every agent here uses Paperclip's `claude_local` adapter authenticated via
-a **Claude Max plan subscription login**, not a metered API key. That
-means every agent — CEO, Operations Lead, Engineering Lead — shares **one**
-Claude account's rate limits: one 5-hour session window, one weekly
-Sonnet pool, one weekly Opus pool. This is different from Paperclip's
-usual model of independent per-agent API budgets.
-
-Practical implications, already reflected in `.paperclip.yaml`:
-
-- No dollar budgets are set (`budgetMonthlyCents`) — they track per-token
-  API cost, which doesn't exist under subscription billing. Watch actual
-  capacity via the quota windows Paperclip already polls for this adapter
-  (visible in the dashboard), not a cost cap.
-- `maxTurnsPerRun` is capped low (60) per agent so one heartbeat can't eat
-  the whole shared window.
-- The org starts small (3 agents) on purpose. Growing headcount means
-  more agents competing for the same quota pool — scale gradually and
-  watch the weekly windows before adding more.
-
-## What's in here
+Built on **zero runtime dependencies** beyond the official Anthropic SDK:
+Node 22 (`node:sqlite`, `node:test`, native TS type-stripping), a vanilla-JS
+PWA client, and the `claude` CLI for subscription-based model access.
 
 ```
-COMPANY.md                              company metadata + goals
-agents/
-  ceo/AGENTS.md                         reportsTo: null
-  operations-lead/AGENTS.md             reportsTo: ceo
-  engineering-lead/AGENTS.md            reportsTo: ceo
-projects/onboarding/
-  PROJECT.md
-  tasks/first-30-days/TASK.md           starter task, assignee: ceo
-tasks/weekly-review/TASK.md             recurring, assignee: ceo
-.paperclip.yaml                         adapter config, quota notes, cron routine
-scripts/setup.sh                        onboard Paperclip + import this company
+npm ci
+npm run seed                 # org + 13 agents + versioned prompts
+npm run eval -- --promote    # evaluation-gated agent activation (all 13 must pass)
+npm run dev                  # API :4600 + execution worker (separate processes)
+# open http://localhost:4600 — tap the mic (or type) and give RABIT an objective
 ```
 
-## Quickstart
+## The truth architecture
 
-Run this on the machine that will actually host Paperclip long-term (a
-CI runner or short-lived dev container won't keep agents working on
-schedule):
+The founding rule: **nothing on screen and nothing an agent says may exist
+without a persisted source.**
 
-1. Install [Claude Code](https://claude.com/claude-code) and log in with
-   your Max plan account:
-   ```sh
-   claude login
-   ```
-2. Run the setup script from this repo:
-   ```sh
-   ./scripts/setup.sh
-   ```
-   This runs `npx paperclipai onboard --yes` (installs/starts Paperclip
-   with an embedded database) and then
-   `npx paperclipai company import . --target new --yes` to load this
-   org chart, projects, and tasks as a new company.
-3. Open the dashboard (default `http://localhost:3100`). Imported agents
-   land with heartbeats **disabled** — review the org chart and the
-   `First 30 Days Plan` task, then enable heartbeats when ready.
+- The backend owns all status. Agent "activity" is derived from worker
+  heartbeats + task rows; a dead worker renders as OFFLINE within 90s, never
+  as fake progress. The frontend is `state = reduce(snapshot, SSE events)`
+  with zero decorative timers.
+- Models never execute anything. Every agent turn is one JSON action; the
+  worker validates it, enforces the role's tool/path/command policy in code
+  (`src/tools/dispatch.ts` — realpath containment, no-shell command
+  allowlists, approval gates), and records every call. Denials are
+  persisted events.
+- Completion is verified, not claimed. `complete` triggers backend checks
+  (artifact existence, content, JSON schema, allowlisted commands); only
+  passing checks mark a task done. Failures are first-class honest outcomes.
+- Voice states carry source attribution: only real capture may claim
+  `listening`, only an in-flight model request `thinking`, only actually
+  playing synthesis `speaking`. Fabricated transitions are rejected (HTTP
+  422) and recorded for audit.
 
-## Customizing the org
+## Layout
 
-- Add a role: create `agents/<slug>/AGENTS.md` with `reportsTo` pointing
-  at an existing agent slug, and add a matching entry under `agents:` in
-  `.paperclip.yaml`.
-- Add work: drop a `TASK.md` under a project's `tasks/` folder, or at
-  repo root for company-wide recurring work (see `tasks/weekly-review/`
-  for the recurring + cron pattern).
-- Group a growing org: once you have more than a couple of reports under
-  one lead, add a `TEAM.md` for that subtree (see the
-  [companies spec](https://github.com/paperclipai/paperclip/blob/main/doc/companies/companies-spec.md#7-teammd)).
-
-After editing, re-import to apply changes to an existing company:
-
-```sh
-npx paperclipai company import . --target existing --company-id <id> --dry-run
-npx paperclipai company import . --target existing --company-id <id>
+```
+config/        13-agent roster, per-role tool permission policy, tuning, voice providers
+prompts/       shared immutable core (10 files) + 13 unique role prompts + templates
+src/shared/    sqlite wrapper (WAL), migration, ids, status machines, derived state
+src/adapters/  model adapters: claude CLI (subscription, canary-guarded),
+               Anthropic API, deterministic mock — selection degrades loudly
+src/promptreg/ file-seeded, DB-versioned prompts + effective-prompt assembly
+src/planning/  {reply, team, plan} contract, mechanical validator, confirm flow
+src/tools/     tool registry + THE single permission enforcement point
+src/worker/    claims (atomic, leased), agent loop, verification, handoffs, recovery
+src/voice/     voice session state machine (19 source-attributed states)
+src/evals/     per-agent eval suites (8 categories), promotion gate, rollback
+src/server/    HTTP API + SSE hub + converse (voice/text conversation)
+web/           voice-first PWA: audio-reactive core, chat drawer, activity board
+tests/         40 tests incl. the 9 mandatory acceptance tests (worker-kill
+               recovery, malformed output, permission boundary, injection,
+               prompt lifecycle, interface truth)
 ```
 
-Use `--collision rename|skip` to control how naming conflicts with
-existing agents/projects are handled (see Paperclip's
-[import/export docs](https://github.com/paperclipai/paperclip/blob/main/docs/guides/board-operator/importing-and-exporting.md)).
+## Model access (Claude Max plan by design)
 
-## Beyond this starter setup
+All agents share one Claude subscription via the `claude` CLI in headless
+print mode with **all built-in tools disabled** — a startup canary proves a
+tool-bait prompt causes no side effects before the adapter is trusted.
+`ANTHROPIC_API_KEY` switches to the API adapter; with neither, the system
+runs in loudly-labeled MOCK MODE (banner + health endpoint reason — never
+silent). Usage is tracked in tokens per 5-hour/weekly quota windows
+(`/api/usage`) because subscription billing has no per-token dollars.
 
-Paperclip supports a lot this repo doesn't set up yet: Docker/production
-deployment, multi-company isolation, board approval workflows, other
-agent adapters (Codex, Cursor, Gemini, HTTP/webhook). See the
-[Paperclip repo](https://github.com/paperclipai/paperclip) and its `docs/`
-folder for those.
+## Voice
+
+Works out of the box with browser-native providers (Web Speech STT ar/en,
+speechSynthesis TTS, getUserMedia capture with hard mute, tap-to-talk,
+<200ms barge-in preserving the unspoken remainder). Every layer sits behind
+a provider interface; configuring keys switches the primary path
+(`config/voice.json` + `/api/health` provider matrix):
+
+| Layer | Fallback (works now) | Primary when configured |
+|---|---|---|
+| STT | Web Speech (browser) | Deepgram — `DEEPGRAM_API_KEY` |
+| TTS | speechSynthesis | Fish Audio — `FISH_AUDIO_API_KEY` |
+| Wake word | none → push-to-talk | Porcupine — `PICOVOICE_ACCESS_KEY` |
+| Transport | in-page capture | LiveKit — `LIVEKIT_URL/API_KEY/API_SECRET` |
+
+Live integration of the keyed providers is the next milestone once
+credentials exist; the selection, labeling, and degradation paths are in
+place and tested. Roadmap after that: native mobile clients and an
+always-on room device (the server API — short-lived voice session tokens,
+SSE, converse — already supports them without changes).
+
+## Agents
+
+13 roles (CEO, PM, UX, Frontend, Backend, Database, QA, Security,
+Analytics, Marketing, Finance, Operations, Customer Support), each with a
+unique versioned role prompt bound to its exact tool policy. An agent is
+NOT plannable until its prompt version passes its 8-category eval suite
+(normal / ambiguous / tool-required / impossible / failure-recovery /
+prompt-injection / handoff / permission-boundary) at 100% through the real
+execution machinery. Prompt improvements ship as candidates, promote only
+on measured results, and roll back cleanly (`/api/prompts`, `/api/evals`).
+
+## Tests
+
+`npm test` — typecheck + 40 unit/integration tests, including all nine
+mandatory acceptance tests (see `tests/integration/`). CI runs the full
+suite plus the mechanical eval tier with no model credentials.
+
+## Legacy Paperclip package
+
+The original Paperclip "Agent Companies" config (COMPANY.md, agents/*/
+AGENTS.md, .paperclip.yaml, scripts/setup.sh) is preserved untouched for
+importing into a self-hosted Paperclip instance; it is independent of the
+RABIT OS in this repo. The old simulated demo dashboard has been removed —
+the real client lives in `web/` (its visual identity carries on in the
+audio-reactive core).
