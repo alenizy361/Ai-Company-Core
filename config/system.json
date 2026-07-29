@@ -1,0 +1,18 @@
+{
+  "port": 4600,
+  "orgId": "org_default",
+  "leaseMs": 60000,
+  "heartbeatMs": 10000,
+  "sweepMs": 15000,
+  "ssePollMs": 250,
+  "maxTurnsPerExecution": 24,
+  "maxWallClockMs": 600000,
+  "maxConcurrentBranches": 3,
+  "maxAttempts": 3,
+  "approvalTimeoutMs": 1800000,
+  "staleWorkerMs": 90000,
+  "maxReplans": 2,
+  "maxPlanSteps": 30,
+  "toolTimeoutMs": 120000,
+  "toolResultInlineLimit": 8000
+}

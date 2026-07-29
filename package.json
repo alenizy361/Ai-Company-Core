@@ -1,0 +1,25 @@
+{
+  "name": "rabit-os",
+  "version": "0.2.0",
+  "private": true,
+  "description": "RABIT Autonomous Company OS — real multi-agent backend, execution worker, and voice-first interface.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "node --disable-warning=ExperimentalWarning src/cli/dev.ts",
+    "server": "node --disable-warning=ExperimentalWarning src/server/index.ts",
+    "worker": "node --disable-warning=ExperimentalWarning src/worker/index.ts",
+    "seed": "node --disable-warning=ExperimentalWarning src/cli/seed.ts",
+    "eval": "node --disable-warning=ExperimentalWarning src/cli/eval.ts",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node --disable-warning=ExperimentalWarning --test \"tests/unit/**/*.test.ts\"",
+    "test:integration": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"tests/integration/**/*.test.ts\"",
+    "test": "npm run typecheck && npm run test:unit && npm run test:integration"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "providers": {
+    "stt":       { "primary": "deepgram",  "keyEnv": "DEEPGRAM_API_KEY",     "fallback": "webspeech" },
+    "tts":       { "primary": "fish-audio", "keyEnv": "FISH_AUDIO_API_KEY",  "fallback": "speechsynthesis" },
+    "wake":      { "primary": "porcupine", "keyEnv": "PICOVOICE_ACCESS_KEY", "fallback": "none" },
+    "transport": { "primary": "livekit",   "keyEnvs": ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"], "fallback": "ws-pcm" }
+  },
+  "turn": { "silenceMs": 900, "graceMs": 350, "minSpeechMs": 200 },
+  "sessionTokenTtlSec": 900,
+  "retention": { "transcriptDays": 90, "audio": "none" }
+}

@@ -1,0 +1,83 @@
+{
+  "comment": "Role-based tool policy, enforced in code by src/tools/dispatch.ts at every tool call. Paths are globs relative to the objective workspace root. Commands are exact-binary + argument-prefix allowlists executed without a shell.",
+  "roles": {
+    "ceo": {
+      "tools": ["read_file", "list_dir", "search", "read_artifact", "write_artifact", "memory_search", "memory_write", "task_note"],
+      "paths": { "read": ["**"], "write": [] },
+      "commands": [],
+      "approvalRequired": []
+    },
+    "pm": {
+      "tools": ["read_file", "list_dir", "search", "read_artifact", "write_artifact", "memory_search", "memory_write", "task_note"],
+      "paths": { "read": ["**"], "write": ["docs/**"] },
+      "commands": [],
+      "approvalRequired": []
+    },
+    "ux": {
+      "tools": ["read_file", "list_dir", "search", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "paths": { "read": ["**"], "write": ["docs/ux/**"] },
+      "commands": [],
+      "approvalRequired": []
+    },
+    "frontend": {
+      "tools": ["read_file", "write_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "paths": { "read": ["**"], "write": ["web/**", "public/**", "assets/**", "src/ui/**"] },
+      "commands": [{ "bin": "node" }, { "bin": "npm", "argsPrefix": ["run"] }, { "bin": "npm", "argsPrefix": ["test"] }],
+      "approvalRequired": [{ "tool": "run_command", "match": "npm install*" }]
+    },
+    "backend": {
+      "tools": ["read_file", "write_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "paths": { "read": ["**"], "write": ["src/**", "server/**", "api/**", "lib/**"] },
+      "commands": [{ "bin": "node" }, { "bin": "npm", "argsPrefix": ["run"] }, { "bin": "npm", "argsPrefix": ["test"] }],
+      "approvalRequired": [{ "tool": "run_command", "match": "npm install*" }]
+    },
+    "database": {
+      "tools": ["read_file", "write_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "paths": { "read": ["**"], "write": ["db/**", "migrations/**", "src/shared/migrations/**"] },
+      "commands": [{ "bin": "node" }],
+      "approvalRequired": []
+    },
+    "qa": {
+      "tools": ["read_file", "write_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "paths": { "read": ["**"], "write": ["tests/**"] },
+      "commands": [{ "bin": "node" }, { "bin": "npm", "argsPrefix": ["run"] }, { "bin": "npm", "argsPrefix": ["test"] }],
+      "approvalRequired": []
+    },
+    "security": {
+      "tools": ["read_file", "list_dir", "search", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "paths": { "read": ["**"], "write": [] },
+      "commands": [],
+      "approvalRequired": []
+    },
+    "analytics": {
+      "tools": ["read_file", "list_dir", "search", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "paths": { "read": ["**"], "write": [] },
+      "commands": [],
+      "approvalRequired": []
+    },
+    "marketing": {
+      "tools": ["read_file", "list_dir", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "paths": { "read": ["docs/**", "web/**"], "write": [] },
+      "commands": [],
+      "approvalRequired": []
+    },
+    "finance": {
+      "tools": ["read_artifact", "write_artifact", "memory_search", "memory_write", "task_note"],
+      "paths": { "read": [], "write": [] },
+      "commands": [],
+      "approvalRequired": []
+    },
+    "operations": {
+      "tools": ["read_file", "write_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "paths": { "read": ["**"], "write": ["config/**", "scripts/**"] },
+      "commands": [{ "bin": "node" }, { "bin": "npm", "argsPrefix": ["run"] }],
+      "approvalRequired": [{ "tool": "write_file", "match": "config/*" }]
+    },
+    "support": {
+      "tools": ["read_artifact", "write_artifact", "memory_search", "memory_write", "task_note"],
+      "paths": { "read": [], "write": [] },
+      "commands": [],
+      "approvalRequired": []
+    }
+  }
+}
