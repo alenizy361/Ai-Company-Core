@@ -35,8 +35,11 @@ pip3 install -q -U anthropic 2>/dev/null || pip3 install -q -U --break-system-pa
 
 say "Creating the non-root service user '$RUSER'..."
 id "$RUSER" >/dev/null 2>&1 || useradd -m -s /bin/bash "$RUSER"
-mkdir -p /opt/rabit-brain /var/www/rabit /srv/rabit-jobs /srv/rabit-deliverables
-chown -R "$RUSER:$RUSER" /opt/rabit-brain /srv/rabit-jobs /srv/rabit-deliverables
+mkdir -p /opt/rabit-brain /var/www/rabit /srv/rabit-jobs /srv/rabit-deliverables /var/lib/rabit
+# code dir stays root-owned (jobs must never be able to rewrite the brain);
+# data dir /var/lib/rabit is the only writable state for brain + worker
+chown -R "$RUSER:$RUSER" /srv/rabit-jobs /srv/rabit-deliverables /var/lib/rabit
+chown -R root:root /opt/rabit-brain
 
 say "Downloading Rabit files..."
 for f in rabit-brain.py rabit-worker.py rabit-telegram.py rabit_claude.py; do
@@ -48,7 +51,7 @@ for f in health-monitor.sh morning-brief.sh memory-distill.sh; do
   chmod +x "/opt/rabit-brain/routines/$f"
 done
 curl -fsSL "$RAW/dashboard/index.html" -o /var/www/rabit/index.html
-chown -R "$RUSER:$RUSER" /opt/rabit-brain
+chmod -R go-w /opt/rabit-brain
 
 # ---------------- config / secrets ----------------
 say "Configuring..."
@@ -73,12 +76,15 @@ if [ -z "$PORT" ] || ! port_free "$PORT"; then PORT=8787
   port_free "$PORT" || for p in 8899 8901 8917 9411 9737; do port_free "$p" && { PORT=$p; break; }; done
 fi
 put RABIT_PORT "$PORT"; put RABIT_MODEL "${RABIT_MODEL:-claude-opus-5}"
-put RABIT_DB /opt/rabit-brain/rabit.db
-put RABIT_MEMORY /opt/rabit-brain/memory.md
-put RABIT_STATUS /opt/rabit-brain/status.json
+put RABIT_DB /var/lib/rabit/rabit.db
+put RABIT_MEMORY /var/lib/rabit/memory.md
+put RABIT_STATUS /var/lib/rabit/status.json
 put RABIT_JOBS_DIR /srv/rabit-jobs
 put RABIT_DELIVER_DIR /srv/rabit-deliverables
 put RABIT_EXEC "${RABIT_EXEC:-1}"
+# help cron routines (no PATH) find the CLI the brain/worker use
+CBIN=$(sudo -u "$RUSER" -H bash -lc 'command -v claude' 2>/dev/null || true)
+[ -n "$CBIN" ] && put RABIT_CLAUDE_BIN "$CBIN"
 
 # voice mode
 VMODE=$(get RABIT_TTS); [ -z "$VMODE" ] && VMODE=$(ask RABIT_TTS \
@@ -101,11 +107,12 @@ DOMAIN=$(ask RABIT_DOMAIN "Domain pointing at this server for HTTPS (blank = sta
 
 # ---------------- systemd units ----------------
 say "Installing services..."
+# /opt/rabit-brain (code) is deliberately NOT writable by the services, so a
+# job can never rewrite the brain. Writable state lives in /var/lib/rabit.
 HARDEN="NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only
-PrivateTmp=yes
-ReadWritePaths=/opt/rabit-brain /srv/rabit-jobs /srv/rabit-deliverables"
+PrivateTmp=yes"
 unit(){ cat > "/etc/systemd/system/$1.service"; }
 
 unit rabit-brain <<EOF
@@ -122,7 +129,7 @@ Environment=PATH=/home/$RUSER/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbi
 Restart=always
 RestartSec=3
 $HARDEN
-ReadWritePaths=/opt/rabit-brain /srv/rabit-jobs /srv/rabit-deliverables /home/$RUSER
+ReadWritePaths=/var/lib/rabit /home/$RUSER
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -143,7 +150,7 @@ RestartSec=5
 MemoryMax=2G
 CPUQuota=80%
 $HARDEN
-ReadWritePaths=/opt/rabit-brain /srv/rabit-jobs /srv/rabit-deliverables /home/$RUSER
+ReadWritePaths=/var/lib/rabit /srv/rabit-jobs /srv/rabit-deliverables /home/$RUSER
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -161,7 +168,7 @@ Environment=HOME=/home/$RUSER
 Restart=always
 RestartSec=10
 $HARDEN
-ReadWritePaths=/opt/rabit-brain /home/$RUSER
+ReadWritePaths=/var/lib/rabit /home/$RUSER
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -178,7 +185,11 @@ server {
 
     location /deliverables/ {
         alias /srv/rabit-deliverables/;
-        autoindex on;
+        autoindex off;
+        # AI-built pages run in a sandboxed opaque origin so they can never
+        # read the dashboard's stored access token (no allow-same-origin).
+        add_header Content-Security-Policy "sandbox allow-scripts allow-popups allow-forms" always;
+        add_header X-Content-Type-Options "nosniff" always;
     }
     location /api/ {
         proxy_pass http://127.0.0.1:$PORT;
@@ -212,8 +223,10 @@ fi
 # ---------------- cron routines ----------------
 say "Scheduling proactive routines (health, morning brief, memory)..."
 CRON=/etc/cron.d/rabit
+CRONPATH="/home/$RUSER/.local/bin:/home/$RUSER/.npm-global/bin:/usr/local/bin:/usr/bin:/bin"
 cat > "$CRON" <<EOF
 SHELL=/bin/bash
+PATH=$CRONPATH
 */5 * * * * $RUSER /opt/rabit-brain/routines/health-monitor.sh >/dev/null 2>&1
 0 4 * * * $RUSER /opt/rabit-brain/routines/morning-brief.sh >/dev/null 2>&1
 30 2 * * * $RUSER /opt/rabit-brain/routines/memory-distill.sh >/dev/null 2>&1

@@ -48,6 +48,20 @@ def db():
     return conn
 
 
+def recover_stale():
+    """A SIGKILL/OOM/restart mid-run leaves a job stuck in 'running'. On
+    startup, fail any job that's been 'running' longer than the max job time so
+    the owner gets an honest result instead of a job wedged forever."""
+    cutoff = time.time() - (int(os.environ.get("RABIT_JOB_TIMEOUT", "1800")) + 300)
+    try:
+        with db() as c:
+            c.execute("""UPDATE jobs SET status='failed',
+                         error='interrupted (server restarted while running)', updated=?
+                         WHERE status='running' AND updated < ?""", (time.time(), cutoff))
+    except sqlite3.Error:
+        pass
+
+
 def claim_one():
     with db() as c:
         row = c.execute(
@@ -69,20 +83,54 @@ def finish(jid, status, deliverable="", error=""):
                   (status, deliverable, error[:2000], time.time(), jid))
 
 
+# refuse to publish anything containing a secret the job should never emit
+SECRET_MARKERS = [os.environ.get("RABIT_TOKEN", ""),
+                  "sk-ant-", "-----BEGIN", "refresh_token", "access_token",
+                  "ANTHROPIC_API_KEY", "TELEGRAM_TOKEN"]
+SECRET_MARKERS = [m for m in SECRET_MARKERS if m]
+
+
+def looks_secret(path):
+    try:
+        with open(path, "rb") as f:
+            head = f.read(200000)
+    except OSError:
+        return True
+    try:
+        txt = head.decode("utf-8", "ignore")
+    except Exception:
+        return False
+    return any(m in txt for m in SECRET_MARKERS)
+
+
 def publish(jid, workspace):
-    dest = os.path.join(DELIVER_DIR, jid)
+    dest = os.path.realpath(os.path.join(DELIVER_DIR, jid))
     os.makedirs(dest, exist_ok=True)
+    ws_real = os.path.realpath(workspace)
     published = []
-    for root, _dirs, files in os.walk(workspace):
+    for root, dirs, files in os.walk(workspace):
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
         for f in files:
             ext = os.path.splitext(f)[1].lower()
             if ext not in PUBLISH_EXT:
                 continue
             src = os.path.join(root, f)
-            if os.path.getsize(src) > 25 * 1024 * 1024:
+            # never follow a symlink out of the workspace, or copy a secret
+            if os.path.islink(src):
+                continue
+            if not os.path.realpath(src).startswith(ws_real + os.sep):
+                continue
+            try:
+                if os.path.getsize(src) > 25 * 1024 * 1024:
+                    continue
+            except OSError:
+                continue
+            if looks_secret(src):
                 continue
             rel = os.path.relpath(src, workspace)
             out = os.path.join(dest, rel)
+            if not os.path.realpath(os.path.dirname(out) or dest).startswith(dest):
+                continue
             os.makedirs(os.path.dirname(out), exist_ok=True)
             shutil.copy2(src, out)
             published.append(rel)
@@ -121,6 +169,7 @@ def process(job, claude_bin):
 def main():
     os.makedirs(JOBS_DIR, exist_ok=True)
     os.makedirs(DELIVER_DIR, exist_ok=True)
+    recover_stale()
     claude_bin = find_claude()
     print("Rabit worker up — db=%s claude=%s" % (DB_PATH, claude_bin or "MISSING"), flush=True)
     while True:

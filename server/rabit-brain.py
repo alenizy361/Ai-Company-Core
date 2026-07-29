@@ -28,6 +28,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import shutil
 import sqlite3
 import threading
@@ -218,13 +219,19 @@ def remember(sid, user_msg, reply):
 
 
 def enqueue_job(sid, title, spec):
-    jid = "job_%d_%03d" % (int(time.time()), int.from_bytes(os.urandom(2), "big") % 1000)
+    # unguessable id: deliverable URLs must not be enumerable by outsiders
     now = time.time()
-    with db_lock, db() as c:
-        c.execute("""INSERT INTO jobs(id,sid,title,spec,status,deliverable,error,created,updated)
-                     VALUES(?,?,?,?, 'queued', '', '', ?, ?)""",
-                  (jid, sid, title, spec, now, now))
-    return jid
+    for _ in range(5):
+        jid = "job_" + secrets.token_hex(12)
+        try:
+            with db_lock, db() as c:
+                c.execute("""INSERT INTO jobs(id,sid,title,spec,status,deliverable,error,created,updated)
+                             VALUES(?,?,?,?, 'queued', '', '', ?, ?)""",
+                          (jid, sid, title, spec, now, now))
+            return jid
+        except sqlite3.IntegrityError:
+            continue
+    raise RuntimeError("could not allocate job id")
 
 
 def get_job(jid):
@@ -423,8 +430,11 @@ class Handler(BaseHTTPRequestHandler):
         return peer
 
     def _authed(self):
+        # fail CLOSED: with no token configured, protected endpoints stay shut
+        # (public box — better a locked-out owner who fixes config than an
+        # open door). The installer always writes a token.
         if not TOKEN:
-            return True  # unprotected (installer always sets a token)
+            return False
         got = self.headers.get("Authorization", "")
         if got.startswith("Bearer "):
             return hmac.compare_digest(got[7:].strip(), TOKEN)
@@ -507,7 +517,10 @@ class Handler(BaseHTTPRequestHandler):
             spec = str(data.get("spec", "")).strip()[:8000]
             if not spec:
                 self._send(400, {"error": "empty spec"}); return
-            jid = enqueue_job(OWNER_SID, title or "task", spec)
+            try:
+                jid = enqueue_job(OWNER_SID, title or "task", spec)
+            except Exception as exc:
+                self._send(500, {"error": str(exc)[:200]}); return
             self._send(200, {"job_id": jid, "status": "queued"})
             return
 
