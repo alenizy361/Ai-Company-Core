@@ -14,11 +14,11 @@ CLAUDE_BIN="${RABIT_CLAUDE_BIN:-$(command -v claude || echo /usr/local/bin/claud
 status_txt=$(cat "$STATUS" 2>/dev/null || echo "{}")
 mem_txt=$(head -c 2000 "$MEM" 2>/dev/null || echo "")
 
-prompt="أنت رابِت، مساعد المدير الشخصي. اكتب موجز صباحي قصير جداً بالعربي (3-4 أسطر)،
-ودّي وعملي، بدون إيموجي. حيّه بصباح الخير، واذكر باختصار حالة السيرفر إن كان فيها ملاحظة،
-وذكّره بأهم شي من سياقه إن وُجد، واقترح خطوة مفيدة لليوم.
+prompt="أنت RABIT AI CORE. اكتب موجز صباحي قصير جداً بالعربي (3-4 أسطر)، مهني ومباشر،
+بدون إيموجي وبدون ألقاب أو مبالغة. اذكر باختصار حالة السيرفر إن كان فيها ملاحظة حقيقية،
+وأهم شي من السياق إن وُجد، واقترح خطوة مفيدة لليوم. لا تخترع أي إنجاز أو نشاط لم يحدث.
 حالة السيرفر (JSON): ${status_txt}
-ما تعرفه عن المدير: ${mem_txt}"
+ما تعرفه عن المالك: ${mem_txt}"
 
 brief=$("$CLAUDE_BIN" -p "$prompt" --output-format json 2>/dev/null \
   | python3 -c "import sys,json;
@@ -27,7 +27,7 @@ try:
 except Exception:
     print('')" 2>/dev/null || echo "")
 
-[ -z "$brief" ] && brief="صباح الخير يا مدير. السيرفر يعمل. جاهز لأوامرك اليوم."
+[ -z "$brief" ] && brief="صباح الخير. السيرفر يعمل. جاهز لأوامرك اليوم."
 
 curl -s --max-time 20 "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
   --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \

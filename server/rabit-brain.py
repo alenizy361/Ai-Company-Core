@@ -1047,8 +1047,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authed():
             self._send(401, {"error": "unauthorized"}); return
         if not allowed(self._client_ip()):
-            self._send(429, {"reply": "وصلنا الحد الأقصى من الطلبات مؤقتًا — جرب بعد شوي يا مدير.",
-                             "team": [], "order": None})
+            self._send(429, {"reply": "وصلنا الحد الأقصى من الطلبات مؤقتًا. جرّب بعد قليل.",
+                             "team": [], "plan": None})
             return
         data = self._read_json()
         if data is None:
@@ -1101,8 +1101,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._send(502, {"error": ("brain error: %s" % exc)[:300]}); return
             if reply is None:
-                reply = ("ما أقدر أساعد في هذا الطلب يا مدير." if data.get("lang") == "ar"
-                         else "I can't help with that request, boss.")
+                reply = ("ما أقدر أساعد في هذا الطلب." if data.get("lang") == "ar"
+                         else "I can't help with that request.")
                 team, plan = [], None
             if not EXEC_ENABLED:
                 plan = None

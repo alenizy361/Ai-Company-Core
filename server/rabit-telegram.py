@@ -72,8 +72,8 @@ def main():
                 continue  # ignore everyone except the owner
             text = (msg.get("text") or "").strip()
             if msg.get("voice") and not text:
-                send("وصلتني رسالتك الصوتية — فعّل التفريغ الصوتي في تيليجرام أو اكتب لي نصاً "
-                     "مؤقتاً يا مدير.")
+                send("وصلتني رسالتك الصوتية. فعّل التفريغ الصوتي في تيليجرام أو اكتب لي نصاً "
+                     "مؤقتاً.")
                 continue
             if not text:
                 continue

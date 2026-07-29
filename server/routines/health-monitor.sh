@@ -41,6 +41,6 @@ if [ -n "$alerts" ] && [ -n "${TELEGRAM_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:
     echo "$now" > "$ALERT_STAMP"
     curl -s --max-time 15 "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
       --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-      --data-urlencode "text=تنبيه من السيرفر يا مدير: ${alerts}" >/dev/null || true
+      --data-urlencode "text=تنبيه من السيرفر: ${alerts}" >/dev/null || true
   fi
 fi
