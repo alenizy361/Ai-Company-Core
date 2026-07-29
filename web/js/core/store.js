@@ -4,6 +4,7 @@
 // composite core state, and announcements. Staleness rule unchanged: without
 // a fresh worker heartbeat, nothing may render as running.
 import { EventStream } from './sse.js';
+import { deriveSdkActivity } from './core-state.js';
 
 const RING_CAP = 500;
 
@@ -64,6 +65,11 @@ export class BackendStore {
 
   pendingApprovals() {
     return this.snapshot?.pendingApprovals ?? 0;
+  }
+
+  /** Agent-SDK subagent activity (from persisted sira.* events — real, seq-tagged). */
+  sdkActiveAgents() {
+    return deriveSdkActivity(this.ring, Date.now());
   }
 
   async refresh() {

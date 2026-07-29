@@ -15,7 +15,8 @@
 
 #network .node { cursor: pointer; }
 #network .node circle.body { fill: var(--bg-elev2); stroke: var(--line-strong); stroke-width: 1.4; }
-#network .node.running circle.body, #network .node.verifying circle.body { stroke: var(--accent); }
+#network .node.running circle.body, #network .node.verifying circle.body,
+#network .node.using_tool circle.body { stroke: var(--accent); }
 #network .node.waiting_for_approval circle.body, #network .node.blocked circle.body,
 #network .node.queued circle.body, #network .node.waiting_for_dependency circle.body,
 #network .node.waiting_for_tool circle.body { stroke: var(--amber); }

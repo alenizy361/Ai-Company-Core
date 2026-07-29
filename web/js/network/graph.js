@@ -56,6 +56,18 @@ export class NetworkGraph {
     backend.on('execution.verifying', (ev) => {
       if (ev.agentKey) this.pulse(`core:${ev.agentKey}`, 'verification', ev.seq);
     });
+
+    // Agent-SDK subagent events (the parent SIRA session delegating work):
+    // assignment out, tool activity, and the result returning to the core.
+    backend.on('sira.agent.started', (ev) => {
+      if (ev.agentKey) this.pulse(`core:${ev.agentKey}`, 'assignment', ev.seq);
+    });
+    backend.on('sira.tool.started', (ev) => {
+      if (ev.agentKey && ev.agentKey !== 'sira') this.pulse(`core:${ev.agentKey}`, 'tool', ev.seq);
+    });
+    backend.on('sira.agent.completed', (ev) => {
+      if (ev.agentKey) this.pulse(`core:${ev.agentKey}`, 'handoff', ev.seq);
+    });
   }
 
   resize() {
@@ -80,9 +92,14 @@ export class NetworkGraph {
     if (!s) return;
     const agents = s.agents ?? [];
 
-    // Active = has an in-flight task (status derived from real task rows).
+    // Active = has an in-flight task (status derived from real task rows) OR
+    // a live Agent-SDK delegation (derived from persisted sira.* events).
     const IN_FLIGHT = new Set(['queued', 'running', 'waiting_for_tool', 'waiting_for_approval', 'verifying', 'waiting_for_dependency', 'blocked']);
     const activeKeys = new Set(agents.filter((a) => IN_FLIGHT.has(a.status) && a.taskId).map((a) => a.key));
+    const sdkActive = this.backend.sdkActiveAgents();
+    for (const key of sdkActive.keys()) {
+      if (agents.some((a) => a.key === key)) activeKeys.add(key);
+    }
 
     // Load the active objective's DAG for dependency edges.
     let dag = null;
@@ -157,21 +174,24 @@ export class NetworkGraph {
     core.addEventListener('click', () => this.onSelect?.({ kind: 'core' }));
     this.nodeGroup.appendChild(core);
 
-    // Agent nodes (focus order = clockwise from the layout).
+    // Agent nodes (focus order = clockwise from the layout). An SDK
+    // delegation overrides the worker-derived status (both are real; the SDK
+    // one is the live parent-session truth for this node).
     for (const node of layout.nodes) {
       const agent = agents.find((a) => a.key === node.key);
       if (!agent) continue;
+      const status = sdkActive.get(node.key)?.status ?? agent.status;
       const label = document.documentElement.lang === 'ar' ? agent.nameAr : agent.nameEn;
       const g = svgEl('g', {
-        class: `node ${agent.status}`, role: 'button', tabindex: '0',
-        'aria-label': t('network.node', { name: label, status: t(`state.${agent.status}`, {}) === `state.${agent.status}` ? agent.status : t(`state.${agent.status}`) }),
+        class: `node ${status}`, role: 'button', tabindex: '0',
+        'aria-label': t('network.node', { name: label, status: t(`state.${status}`, {}) === `state.${status}` ? status : t(`state.${status}`) }),
       });
       g.appendChild(svgEl('circle', { class: 'body', cx: node.x, cy: node.y, r: 24, fill: agent.color ? `${agent.color}22` : undefined }));
       const shortText = svgEl('text', { class: 'short', x: node.x, y: node.y + 4 });
       shortText.textContent = agent.short;
       g.appendChild(shortText);
       const statusText = svgEl('text', { class: 'status', x: node.x, y: node.y + 38 });
-      statusText.textContent = agent.status;
+      statusText.textContent = status;
       g.appendChild(statusText);
       const select = () => this.onSelect?.({ kind: 'agent', key: agent.key, taskId: agent.taskId });
       g.addEventListener('click', select);

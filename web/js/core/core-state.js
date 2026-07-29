@@ -12,6 +12,40 @@ function lastSeq(ring, pred) {
 }
 
 /**
+ * Agent-SDK activity derived from persisted sira.* events. Pure: replays the
+ * ring in seq order. A sira.execution.completed clears the board (the parent
+ * turn ended); entries older than the freshness window are dropped so a
+ * server killed mid-turn cannot pin activity forever.
+ * @returns Map<agentKey, { status: 'running'|'using_tool', seq: number, at: number }>
+ */
+export function deriveSdkActivity(ring, now) {
+  const active = new Map();
+  for (const ev of ring) {
+    if (ev.type === 'sira.execution.completed') {
+      active.clear();
+      continue;
+    }
+    const key = ev.agentKey;
+    if (!key || key === 'sira') continue;
+    if (ev.type === 'sira.agent.started') {
+      active.set(key, { status: 'running', seq: ev.seq ?? 0, at: ev.at ?? now });
+    } else if (ev.type === 'sira.agent.completed' || ev.type === 'sira.agent.failed') {
+      active.delete(key);
+    } else if (ev.type === 'sira.tool.started' && active.has(key)) {
+      const cur = active.get(key);
+      cur.status = 'using_tool';
+      cur.seq = ev.seq ?? cur.seq;
+    } else if (ev.type === 'sira.tool.completed' && active.get(key)?.status === 'using_tool') {
+      active.get(key).status = 'running';
+    }
+  }
+  for (const [key, entry] of active) {
+    if (now - entry.at > 600000) active.delete(key);
+  }
+  return active;
+}
+
+/**
  * @param input {{
  *   voiceState: string,
  *   connected: boolean, reconnecting: boolean,
@@ -37,7 +71,22 @@ export function deriveCoreState(input) {
       : { state: 'sync_lost', source: 'sse:disconnected' };
   }
 
-  // 3. Worker staleness suppresses ALL execution states.
+  // 3. Agent-SDK activity (the SIRA parent session runs in the API process —
+  //    deliberately NOT gated on worker freshness). Tool use is the finer
+  //    state; delegated agents otherwise read as executing.
+  const sdkToolStart = lastSeq(ring, (e) => e.type === 'sira.tool.started');
+  const sdkToolEnd = lastSeq(ring, (e) => e.type === 'sira.tool.completed' || e.type === 'sira.execution.completed');
+  if (sdkToolStart > 0 && sdkToolStart > sdkToolEnd) {
+    const at = ring.find((e) => e.seq === sdkToolStart)?.at ?? 0;
+    if (input.now - at < 300000) return { state: 'using_tool', source: 'event', seq: sdkToolStart };
+  }
+  const sdkActivity = deriveSdkActivity(ring, input.now);
+  if (sdkActivity.size > 0) {
+    const newest = Math.max(...[...sdkActivity.values()].map((entry) => entry.seq));
+    return { state: 'executing', source: 'event', seq: newest };
+  }
+
+  // 4. Worker staleness suppresses the WORKER's execution states.
   if (!input.workerFresh) {
     return { state: 'ready', source: 'worker:stale' };
   }

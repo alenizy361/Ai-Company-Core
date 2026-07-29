@@ -3,7 +3,7 @@
 // state derives only from real ring events in strict precedence.
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { deriveCoreState } from '../../web/js/core/core-state.js';
+import { deriveCoreState, deriveSdkActivity } from '../../web/js/core/core-state.js';
 
 const NOW = 1_000_000;
 
@@ -93,4 +93,46 @@ test('recent unretryable failure surfaces briefly, then yields', () => {
   assert.equal(deriveCoreState(base({ ring })).state, 'failed');
   const old = [{ seq: 60, type: 'execution.finished', at: NOW - 60000, payload: { status: 'failed', willRetry: false } }];
   assert.equal(deriveCoreState(base({ ring: old })).state, 'ready');
+});
+
+// ---- Agent-SDK activity (sira.* events; NOT gated on worker freshness) ----
+
+test('SDK subagent activity renders executing even with a stale worker (it runs in the API process)', () => {
+  const ring = [
+    { seq: 10, type: 'sira.agent.started', agentKey: 'product', at: NOW - 5000 },
+  ];
+  const out = deriveCoreState(base({ ring, workerFresh: false }));
+  assert.equal(out.state, 'executing');
+  assert.equal(out.seq, 10);
+});
+
+test('SDK tool use is the finer state and clears at sira.execution.completed', () => {
+  const ring = [
+    { seq: 10, type: 'sira.tool.started', agentKey: 'sira', at: NOW - 1000 },
+  ];
+  assert.equal(deriveCoreState(base({ ring })).state, 'using_tool');
+  const done = [...ring, { seq: 11, type: 'sira.execution.completed', at: NOW - 500 }];
+  assert.equal(deriveCoreState(base({ ring: done })).state, 'ready');
+});
+
+test('deriveSdkActivity: lifecycle replay — started, tool, completed, turn-end clear, staleness', () => {
+  const active = deriveSdkActivity([
+    { seq: 1, type: 'sira.agent.started', agentKey: 'product', at: NOW - 900 },
+    { seq: 2, type: 'sira.agent.started', agentKey: 'ux', at: NOW - 800 },
+    { seq: 3, type: 'sira.tool.started', agentKey: 'ux', at: NOW - 700 },
+    { seq: 4, type: 'sira.agent.completed', agentKey: 'product', at: NOW - 600 },
+  ], NOW);
+  assert.equal(active.has('product'), false, 'completed agent leaves the board');
+  assert.equal(active.get('ux')?.status, 'using_tool');
+
+  const cleared = deriveSdkActivity([
+    { seq: 1, type: 'sira.agent.started', agentKey: 'product', at: NOW - 900 },
+    { seq: 2, type: 'sira.execution.completed', at: NOW - 100 },
+  ], NOW);
+  assert.equal(cleared.size, 0, 'turn end clears all activity');
+
+  const stale = deriveSdkActivity([
+    { seq: 1, type: 'sira.agent.started', agentKey: 'product', at: NOW - 700000 },
+  ], NOW);
+  assert.equal(stale.size, 0, 'a server killed mid-turn cannot pin activity forever');
 });
