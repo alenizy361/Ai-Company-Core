@@ -81,24 +81,39 @@ GROUND TRUTH about this system — your replies must never contradict it:
 - If asked whether something was actually done, answer truthfully from the
   facts you were given (job status, server status). If you don't know, say so.
 
-WHEN TO RETURN AN ORDER (the "order" field):
-- Return an order ONLY for a concrete build/writing task that file tools can
-  produce inside a sandbox with no internet and no shell — e.g. a landing page,
-  an HTML site, a written report or document, a script, sample code, a plan
-  file. Put a clear, self-contained English spec in order.spec (the sandboxed
-  Claude will only see that spec, not this chat), and a short title.
-- Do NOT return an order for things that need real accounts, deployment,
+WHEN TO RETURN A PLAN (the "plan" field) — this is how REAL work happens:
+- For a concrete build/writing task that file tools can produce (a landing
+  page, an HTML site, a written report or document, a script, sample code, a
+  plan), return a "plan": an ORDERED list of 2 to 4 steps. Each step is done by
+  one real agent and runs Claude with file tools in a SHARED workspace, in
+  order, so a later step reads the files earlier steps produced.
+- Each step = {"agent": <one of FE BE QA SEC DB AN UX MKT>, "title": short,
+  "spec": a clear, self-contained English instruction}. The agent doing a step
+  sees ONLY its spec (not this chat), but CAN read files produced by earlier
+  steps — so say e.g. "Read design.md from the previous step, then ...".
+  Example for "build a landing page for a coffee shop":
+  [ {"agent":"UX","title":"Design direction","spec":"Write design.md: pick a
+      color palette (hex), fonts, and the section layout for a coffee-shop
+      landing page. No code, just the design brief."},
+    {"agent":"FE","title":"Build the page","spec":"Read design.md, then build a
+      single self-contained index.html landing page following it. Inline all
+      CSS, no external requests."},
+    {"agent":"QA","title":"Review & fix","spec":"Read index.html. Check it is a
+      coherent landing page; fix any broken or missing parts directly in
+      index.html; write review.md listing what you checked."} ]
+- Do NOT return a plan for things that need real accounts, deployment,
   payments, sending messages, or internet access — for those, help by advising
-  or writing the content directly in your reply, and set order to null.
-- For pure questions, chat, or small talk: order is null and team is [].
+  or writing the content directly in your reply, and set plan to null.
+- For pure questions, chat, or small talk: plan is null and team is [].
 
 Always answer with a single JSON object:
-{"reply": "...", "team": [ ... ], "order": null | {"title": "...", "spec": "..."}}
+{"reply": "...", "team": [ ... ],
+ "plan": null | [ {"agent": "...", "title": "...", "spec": "..."}, ... ]}
 - reply: SAME language as the owner (Arabic/English), 1-3 short sentences
   (spoken aloud via TTS). Confident, warm, practical, strictly truthful.
-  If you return an order, tell the owner you prepared it and they can tap
-  Confirm to run it for real.
-- team: agent keys to light up for a work order, or [].
+  If you return a plan, tell the owner you prepared a team plan and they can
+  tap Confirm to run it for real, and mention which agents will work.
+- team: same agent keys as the plan's steps (for the board), or [].
 Never use emojis or emoticons anywhere in the reply."""
 
 SCHEMA = {
@@ -106,22 +121,26 @@ SCHEMA = {
     "properties": {
         "reply": {"type": "string"},
         "team": {"type": "array", "items": {"type": "string", "enum": AGENT_KEYS}},
-        "order": {
+        "plan": {
             "anyOf": [
                 {"type": "null"},
                 {
-                    "type": "object",
-                    "properties": {
-                        "title": {"type": "string"},
-                        "spec": {"type": "string"},
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "agent": {"type": "string", "enum": AGENT_KEYS},
+                            "title": {"type": "string"},
+                            "spec": {"type": "string"},
+                        },
+                        "required": ["agent", "title", "spec"],
+                        "additionalProperties": False,
                     },
-                    "required": ["title", "spec"],
-                    "additionalProperties": False,
                 },
             ]
         },
     },
-    "required": ["reply", "team", "order"],
+    "required": ["reply", "team", "plan"],
     "additionalProperties": False,
 }
 
@@ -192,9 +211,15 @@ def init_db():
         c.execute("""CREATE TABLE IF NOT EXISTS messages(
             id INTEGER PRIMARY KEY AUTOINCREMENT, sid TEXT, role TEXT,
             content TEXT, ts REAL)""")
-        c.execute("""CREATE TABLE IF NOT EXISTS jobs(
-            id TEXT PRIMARY KEY, sid TEXT, title TEXT, spec TEXT,
+        # a project is a real multi-agent job: an ordered list of steps, each
+        # a real claude run in the shared project workspace
+        c.execute("""CREATE TABLE IF NOT EXISTS projects(
+            id TEXT PRIMARY KEY, sid TEXT, title TEXT,
             status TEXT, deliverable TEXT, error TEXT, created REAL, updated REAL)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS steps(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, seq INTEGER,
+            agent TEXT, title TEXT, spec TEXT, status TEXT, files TEXT, error TEXT,
+            started REAL, ended REAL)""")
 
 
 def history_for(sid, limit=16):
@@ -218,29 +243,35 @@ def remember(sid, user_msg, reply):
                   (sid, sid))
 
 
-def enqueue_job(sid, title, spec):
-    # unguessable id: deliverable URLs must not be enumerable by outsiders
+def create_project(sid, title, plan):
+    """plan = [{agent,title,spec}, ...]. Creates a real multi-step project."""
     now = time.time()
     for _ in range(5):
-        jid = "job_" + secrets.token_hex(12)
+        pid = "prj_" + secrets.token_hex(12)  # unguessable — deliverable URLs
         try:
             with db_lock, db() as c:
-                c.execute("""INSERT INTO jobs(id,sid,title,spec,status,deliverable,error,created,updated)
-                             VALUES(?,?,?,?, 'queued', '', '', ?, ?)""",
-                          (jid, sid, title, spec, now, now))
-            return jid
+                c.execute("""INSERT INTO projects(id,sid,title,status,deliverable,error,created,updated)
+                             VALUES(?,?,?, 'queued', '', '', ?, ?)""", (pid, sid, title, now, now))
+                for i, s in enumerate(plan):
+                    c.execute("""INSERT INTO steps(project_id,seq,agent,title,spec,status,files,error,started,ended)
+                                 VALUES(?,?,?,?,?, 'queued', '', '', 0, 0)""",
+                              (pid, i, s["agent"], s["title"][:120], s["spec"][:8000]))
+            return pid
         except sqlite3.IntegrityError:
             continue
-    raise RuntimeError("could not allocate job id")
+    raise RuntimeError("could not allocate project id")
 
 
-def get_job(jid):
+def get_project(pid):
     with db_lock, db() as c:
-        row = c.execute(
-            "SELECT id,title,status,deliverable,error FROM jobs WHERE id=?", (jid,)).fetchone()
-    if not row:
-        return None
-    d = dict(zip(("id", "title", "status", "deliverable", "error"), row))
+        p = c.execute("SELECT id,title,status,deliverable,error FROM projects WHERE id=?",
+                      (pid,)).fetchone()
+        if not p:
+            return None
+        rows = c.execute("""SELECT agent,title,status,files,error FROM steps
+                            WHERE project_id=? ORDER BY seq""", (pid,)).fetchall()
+    d = dict(zip(("id", "title", "status", "deliverable", "error"), p))
+    d["steps"] = [dict(zip(("agent", "title", "status", "files", "error"), r)) for r in rows]
     if d["deliverable"]:
         d["url"] = DELIVER_URL_BASE.rstrip("/") + "/" + d["id"] + "/"
     return d
@@ -311,6 +342,17 @@ def allowed(ip):
 
 
 # ---------------- brain calls ----------------
+def clean_plan(plan):
+    if not isinstance(plan, list):
+        return None
+    out = []
+    for s in plan[:4]:
+        if isinstance(s, dict) and s.get("agent") in AGENT_KEYS and s.get("spec"):
+            out.append({"agent": s["agent"], "title": str(s.get("title", "") or s["agent"]),
+                        "spec": str(s["spec"])})
+    return out or None
+
+
 def parse_brain_json(text):
     m = re.search(r"\{.*\}", text.strip(), re.S)
     if m:
@@ -318,11 +360,9 @@ def parse_brain_json(text):
             d = json.loads(m.group(0))
             reply = str(d.get("reply", "")).strip()
             team = [k for k in (d.get("team") or []) if k in AGENT_KEYS]
-            order = d.get("order")
-            if not (isinstance(order, dict) and order.get("title") and order.get("spec")):
-                order = None
+            plan = clean_plan(d.get("plan"))
             if reply:
-                return reply, team, order
+                return reply, team, plan
         except (json.JSONDecodeError, TypeError):
             pass
     return text.strip(), [], None
@@ -347,18 +387,18 @@ def ask_api(history, message):
     if resp.stop_reason == "max_tokens":
         raise RuntimeError("brain reply was truncated (max_tokens)")
     text = next((b.text for b in resp.content if b.type == "text"), "")
-    reply, team, order = parse_brain_json(text)
+    reply, team, plan = parse_brain_json(text)
     if not reply:
         raise RuntimeError("empty reply from brain")
-    return reply, team, order
+    return reply, team, plan
 
 
 def ask_cli(history, message):
     text = rabit_claude.chat(CLAUDE_BIN, system_prompt(), history, message, HOME)
-    reply, team, order = parse_brain_json(text)
+    reply, team, plan = parse_brain_json(text)
     if not reply:
         raise RuntimeError("empty reply from brain")
-    return reply, team, order
+    return reply, team, plan
 
 
 # ---------------- neural TTS proxy (optional) ----------------
@@ -471,13 +511,13 @@ class Handler(BaseHTTPRequestHandler):
                 out["hint"] = h
             self._send(200, out)
             return
-        if path == "/api/job":
+        if path == "/api/project":
             if not self._authed():
                 self._send(401, {"error": "unauthorized"}); return
             from urllib.parse import parse_qs, urlparse
-            jid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-            j = get_job(jid)
-            self._send(200 if j else 404, j or {"error": "not found"})
+            pid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+            p = get_project(pid)
+            self._send(200 if p else 404, p or {"error": "not found"})
             return
         self._send(404, {"error": "not found"})
 
@@ -514,14 +554,14 @@ class Handler(BaseHTTPRequestHandler):
             if not EXEC_ENABLED:
                 self._send(403, {"error": "execution disabled"}); return
             title = str(data.get("title", "")).strip()[:200]
-            spec = str(data.get("spec", "")).strip()[:8000]
-            if not spec:
-                self._send(400, {"error": "empty spec"}); return
+            plan = clean_plan(data.get("plan"))
+            if not plan:
+                self._send(400, {"error": "empty plan"}); return
             try:
-                jid = enqueue_job(OWNER_SID, title or "task", spec)
+                pid = create_project(OWNER_SID, title or "project", plan)
             except Exception as exc:
                 self._send(500, {"error": str(exc)[:200]}); return
-            self._send(200, {"job_id": jid, "status": "queued"})
+            self._send(200, {"project_id": pid, "status": "queued"})
             return
 
         if path == "/api/chat":
@@ -534,19 +574,19 @@ class Handler(BaseHTTPRequestHandler):
             history = history_for(sid)
             try:
                 if anthropic_client is not None:
-                    reply, team, order = ask_api(history, message)
+                    reply, team, plan = ask_api(history, message)
                 else:
-                    reply, team, order = ask_cli(history, message)
+                    reply, team, plan = ask_cli(history, message)
             except Exception as exc:
                 self._send(502, {"error": ("brain error: %s" % exc)[:300]}); return
             if reply is None:
                 reply = ("ما أقدر أساعد في هذا الطلب يا مدير." if data.get("lang") == "ar"
                          else "I can't help with that request, boss.")
-                team, order = [], None
+                team, plan = [], None
             if not EXEC_ENABLED:
-                order = None
+                plan = None
             remember(sid, message, reply)
-            self._send(200, {"reply": reply, "team": team, "order": order})
+            self._send(200, {"reply": reply, "team": team, "plan": plan})
             return
 
         self._send(404, {"error": "not found"})

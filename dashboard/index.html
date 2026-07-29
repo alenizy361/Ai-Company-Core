@@ -270,18 +270,18 @@ const I18N={
       listening:"أستمع إليك…",dEmpty:"لا يوجد نشاط بعد — أرسل أمرًا للشركة",
       stIdle:"جاهزة",stPlan:"تخطط",stExec:"تنفّذ",
       chipWork:"يعمل…",chipDone:"تم",chipTalk:"يتكلم",
-      queued:"أضفت المهمة لطابور التنفيذ — تبدأ فور انتهاء المهمة الحالية.",
       thinking:"النواة تفكر…",
       offBadge:"غير متصل",
       offline:"النواة غير متصلة بالخادم. تأكد أن خدمة rabit-brain شغالة على السيرفر ثم حدّث الصفحة.",
-      doneReply:"انتهى عرض المحاكاة على اللوحة. هذا عرض بصري فقط — ما تم تنفيذ أي عمل فعلي.",
-      doneSay:"انتهت المحاكاة على اللوحة يا مدير.",
-      task:"المهمة الحالية",noTask:"بدون مهمة نشطة",
+      task:"المهمة الحالية",noTask:"لا يوجد مشروع نشط",
       lockTitle:"رمز الدخول",lockHint:"أدخل رمز الدخول الخاص بك",lockBtn:"دخول",lockErr:"رمز غير صحيح",
-      execConfirm:"تنفيذ فعلي",execTitle:"أمر جاهز للتنفيذ الحقيقي",
-      execRunning:"جاري التنفيذ الفعلي على الخادم…",execWait:"قد يستغرق دقائق — أطلعك أول ما يخلص.",
-      execDone:"خلص التنفيذ الحقيقي. النتيجة جاهزة:",execOpen:"افتح النتيجة",
-      execFail:"تعذّر إتمام التنفيذ:",execSent:"أرسلت الأمر للتنفيذ الحقيقي."},
+      execConfirm:"تنفيذ فعلي",execTitle:"خطة عمل جاهزة للتنفيذ الحقيقي",
+      execRunning:"الفريق يشتغل فعلياً على الخادم…",execWait:"كل موظف ينفّذ مهمته الحقيقية بالترتيب — قد يستغرق دقائق.",
+      execDone:"خلص الفريق فعلياً. النتيجة جاهزة:",execOpen:"افتح النتيجة",
+      execFail:"تعذّر إتمام العمل:",execSent:"أرسلت الخطة للتنفيذ الحقيقي — تابع الفريق على اللوحة.",
+      chipRun:"يشتغل…",chipWait:"بالانتظار",chipDoneF:"تم",chipFail:"فشل",
+      stStarted:"بدأ العمل",stWrote:"أنتج",stFailed:"فشل",
+      planIntro:"الخطة — سينفّذ هؤلاء الموظفون بالترتيب على الخادم:"},
   en:{caption:"Tap any agent to view its activity — visual simulation",liveFeed:"ACTIVITY SIMULATION",simTag:"SIM",
       coreStatus:"AI CORE STATUS",central:"Central core",
       agents:"Agents",working:"Working now",
@@ -290,18 +290,18 @@ const I18N={
       listening:"Listening…",dEmpty:"No activity yet — send your company a command",
       stIdle:"Online",stPlan:"Planning",stExec:"Executing",
       chipWork:"working…",chipDone:"done",chipTalk:"talking",
-      queued:"Added to the execution queue — starts right after the current mission.",
       thinking:"Core is thinking…",
       offBadge:"OFFLINE",
       offline:"The core is not connected to the server. Make sure the rabit-brain service is running, then refresh the page.",
-      doneReply:"Board simulation finished. This is a visual demo only — no real work was executed.",
-      doneSay:"Board simulation finished, boss.",
-      task:"Current mission",noTask:"No active mission",
+      task:"Current project",noTask:"No active project",
       lockTitle:"Access code",lockHint:"Enter your access code",lockBtn:"Enter",lockErr:"Wrong code",
-      execConfirm:"Run for real",execTitle:"Order ready for real execution",
-      execRunning:"Running for real on the server…",execWait:"May take a few minutes — I'll tell you when it's done.",
-      execDone:"Real execution finished. Result is ready:",execOpen:"Open result",
-      execFail:"Execution could not complete:",execSent:"Order sent for real execution."}
+      execConfirm:"Run for real",execTitle:"Work plan ready for real execution",
+      execRunning:"The team is really working on the server…",execWait:"Each agent runs its real task in order — this can take a few minutes.",
+      execDone:"The team finished for real. Result is ready:",execOpen:"Open result",
+      execFail:"The work could not complete:",execSent:"Plan sent for real execution — watch the team on the board.",
+      chipRun:"working…",chipWait:"waiting",chipDoneF:"done",chipFail:"failed",
+      stStarted:"started",stWrote:"produced",stFailed:"failed",
+      planIntro:"Plan — these agents will run in order on the server:"}
 };
 let lang="ar";
 function T(k){return I18N[lang][k];}
@@ -319,66 +319,21 @@ btnAR.onclick=()=>{lang="ar";applyLang();};
 btnEN.onclick=()=>{lang="en";applyLang();};
 
 /* ================= roster ================= */
-/* pos = % of stage; every agent has its own voice pitch, work-log pool
-   and short spoken lines so they each feel like a different person */
+/* pos = % of stage. Agents light up ONLY when their real step is running. */
 const AGENTS=[
-  {key:"CEO",x:50,y:7.5, ring:"#34d399",tc:"#b18cff",big:1,pitch:.8,
-   ar:"الرئيس التنفيذي",en:"CEO",
-   logs:['▶ Read COMPANY.md','Reviewing the order against company goals…','▶ Read agents/*/AGENTS.md','✔ Approved — dispatching to PM']},
-  {key:"PM", x:31,y:90, ring:"#fbbf24",tc:"#60a5fa",pitch:1.15,
-   ar:"مدير المشاريع",en:"Project Manager",
-   logs:['▶ Write plan.md (+38 lines)','Breaking the mission into tasks…','▶ Assign RAB-12 → FE','▶ Assign RAB-13 → BE','▶ Assign RAB-14 → QA','Tracking progress across the board…','✔ All tasks dispatched']},
-  {key:"FE", x:24,y:14, ring:"#38e1ff",tc:"#38e1ff",pitch:1.05,
-   ar:"مهندس الواجهات",en:"Frontend",
-   logs:['▶ Write src/pages/index.tsx (+214)','▶ Bash npm run build','Polishing the hero section…','▶ Write src/components/Navbar.tsx (+96)','Wiring the UI to the API…','✔ UI build passed']},
-  {key:"QA", x:75,y:15.5,ring:"#34d399",tc:"#38e1ff",pitch:1.25,
-   ar:"مراقب الجودة",en:"QA",
-   logs:['▶ Bash playwright test — 28/28 ✓','Hunting edge cases…','▶ Bash npm run lint — clean','Re-testing on mobile viewport…','✔ No blocking bugs found']},
-  {key:"BE", x:15,y:33, ring:"#38e1ff",tc:"#38e1ff",pitch:.9,
-   ar:"مهندس الأنظمة",en:"Backend",
-   logs:['▶ Write api/server.ts (+180)','Designing REST endpoints…','▶ Bash npm test — 34 passed','▶ Write api/auth.ts (+72)','Deploying to staging…','✔ API live on staging']},
-  {key:"SEC",x:85,y:37.5,ring:"#fb7185",tc:"#fb7185",pitch:.75,
-   ar:"مسؤول الأمن",en:"Security",
-   logs:['▶ Bash trivy scan — running…','Checking auth flows for leaks…','▶ Read api/auth.ts','Rotating exposed keys…','✔ 0 critical vulnerabilities']},
-  {key:"DB", x:14,y:55, ring:"#38e1ff",tc:"#38e1ff",pitch:.95,
-   ar:"مهندس البيانات",en:"Database",
-   logs:['▶ Write schema.sql (+66)','Optimizing slow indexes…','▶ Bash prisma migrate deploy','Backing up before migration…','✔ Schema migrated cleanly']},
-  {key:"AN", x:85,y:58, ring:"#34d399",tc:"#34d399",pitch:1.1,
-   ar:"محلل البيانات",en:"Analytics",
-   logs:['▶ Query events last 30d','Building the funnel report…','▶ Write report.md (+52)','Segmenting users by cohort…','✔ Insights ready for review']},
-  {key:"UX", x:17,y:74, ring:"#60a5fa",tc:"#60a5fa",pitch:1.2,
-   ar:"مصمم التجربة",en:"UX Designer",
-   logs:['▶ Figma export wireframes','Choosing the color system…','▶ Write tokens.css (+40)','Testing the flow with 5 users…','✔ Design tokens handed to FE']},
-  {key:"MKT",x:83,y:76, ring:"#34d399",tc:"#34d399",pitch:1.3,
-   ar:"مدير التسويق",en:"Marketing",
-   logs:['▶ Draft campaign copy v2','A/B testing headlines…','▶ Schedule posts (7 days)','Negotiating influencer rates…','✔ Campaign scheduled']},
-  {key:"FIN",x:69,y:91, ring:"#fbbf24",tc:"#fbbf24",pitch:.85,
-   ar:"المدير المالي",en:"Finance",
-   logs:['▶ Compute budget forecast','Reviewing vendor costs…','▶ Write budget.xlsx','Flagging 2 savings opportunities…','✔ Budget approved & filed']},
+  {key:"CEO",x:50,y:7.5, ring:"#34d399",tc:"#b18cff",big:1,ar:"الرئيس التنفيذي",en:"CEO"},
+  {key:"PM", x:31,y:90, ring:"#fbbf24",tc:"#60a5fa",ar:"مدير المشاريع",en:"Project Manager"},
+  {key:"FE", x:24,y:14, ring:"#38e1ff",tc:"#38e1ff",ar:"مهندس الواجهات",en:"Frontend"},
+  {key:"QA", x:75,y:15.5,ring:"#34d399",tc:"#38e1ff",ar:"مراقب الجودة",en:"QA"},
+  {key:"BE", x:15,y:33, ring:"#38e1ff",tc:"#38e1ff",ar:"مهندس الأنظمة",en:"Backend"},
+  {key:"SEC",x:85,y:37.5,ring:"#fb7185",tc:"#fb7185",ar:"مسؤول الأمن",en:"Security"},
+  {key:"DB", x:14,y:55, ring:"#38e1ff",tc:"#38e1ff",ar:"مهندس البيانات",en:"Database"},
+  {key:"AN", x:85,y:58, ring:"#34d399",tc:"#34d399",ar:"محلل البيانات",en:"Analytics"},
+  {key:"UX", x:17,y:74, ring:"#60a5fa",tc:"#60a5fa",ar:"مصمم التجربة",en:"UX Designer"},
+  {key:"MKT",x:83,y:76, ring:"#34d399",tc:"#34d399",ar:"مدير التسويق",en:"Marketing"},
+  {key:"FIN",x:69,y:91, ring:"#fbbf24",tc:"#fbbf24",ar:"المدير المالي",en:"Finance"},
 ];
 const byKey=Object.fromEntries(AGENTS.map(a=>[a.key,a]));
-
-/* which agents get pulled for which kind of order */
-const TEAM_RULES=[
-  {re:/موقع|صفح|متجر|واجه|تصميم|هوية|site|web|page|store|landing|design|brand/i, team:["UX","FE","BE","QA"]},
-  {re:/تطبيق|ابلكيشن|أبلكيشن|app\b|mobile/i, team:["UX","FE","BE","DB","QA"]},
-  {re:/تسويق|حمل|اعلان|إعلان|سوشال|منشور|market|campaign|\bads?\b|social|post/i, team:["MKT","AN","FIN"]},
-  {re:/تقرير|تحليل|بيانات|احصائ|إحصائ|أرقام|report|analy|data|insight|metric/i, team:["AN","DB","FIN"]},
-  {re:/امن|أمن|اختراق|ثغر|حماية|secur|vuln|pentest|hack|audit/i, team:["SEC","BE","QA"]},
-  {re:/مالي|ميزاني|فلوس|تكلف|فاتور|financ|budget|cost|invoice|price/i, team:["FIN","AN"]},
-  {re:/قاعدة|داتا\s?بيس|database|sql|schema|migrat/i, team:["DB","BE","QA"]},
-];
-function pickTeam(cmd){
-  for(const r of TEAM_RULES)if(r.re.test(cmd))return r.team.slice();
-  return ["FE","BE","AN"];
-}
-
-/* short agent-to-agent pings shown on the wire + feed */
-const PINGS={
-  ar:["أحتاج منك رابط الـ API","استلمت، أكمل من عندي","تشيّك على آخر تحديث رفعته","نسّق معي قبل التسليم","أرسلت لك الملفات، راجعها"],
-  en:["I need the API endpoint from you","Got it, taking over from here","Check the update I just pushed","Sync with me before delivery","Sent you the files, review them"]
-};
-const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
 
 /* ================= live probe ================= */
 /* LIVE = a real Claude brain answers /api/chat (see server/rabit-brain.py);
@@ -451,15 +406,15 @@ function buildNodes(){
 }
 function updateNode(a){
   a.el.classList.toggle("working",a.status==="working");
-  a.el.classList.toggle("talking",a.status==="talking");
   const c=a.chipEl;
-  if(a.status==="working"){c.className="chip amber";c.textContent=T("chipWork");}
-  else if(a.status==="talking"){c.className="chip violet";c.textContent=T("chipTalk");}
-  else if(a.status==="done"){c.className="chip";c.textContent=T("chipDone");}
+  if(a.status==="working"){c.className="chip amber";c.textContent=T("chipRun");}
+  else if(a.status==="wait"){c.className="chip violet";c.textContent=T("chipWait");}
+  else if(a.status==="done"){c.className="chip";c.textContent=T("chipDoneF");}
+  else if(a.status==="fail"){c.className="chip amber";c.textContent=T("chipFail");}
   else c.className="chip hide";
 }
 function refreshStats(){
-  stWorking.textContent=AGENTS.filter(a=>a.status==="working"||a.status==="talking").length;
+  stWorking.textContent=AGENTS.filter(a=>a.status==="working").length;
 }
 
 /* ================= core state ================= */
@@ -675,99 +630,95 @@ function browserSay(txt,agent,done){
   try{speechSynthesis.speak(u);}catch(e){done();}
 }
 
-/* ================= agent engine ================= */
-let missionActive=false;
-const cmdQ=[];
-function stopAgent(a){a.timers.forEach(clearTimeout);a.timers=[];}
-function after(a,ms,fn){a.timers.push(setTimeout(fn,ms));}
-function ping(a,b){
-  interLinks.push({a,b,ttl:2.4,color:a.ring});
-  feed(a,`${a.key} → ${b.key}: ${pick(PINGS[lang])}`);
-}
-/* run one agent through a burst of streamed work */
-function runAgent(a,opts={}){
-  stopAgent(a);
-  a.status="working";updateNode(a);refreshStats();
-  const lines=opts.lines||a.logs.slice(0,4+Math.floor(Math.random()*2));
-  let i=0,delay=350;
-  const step=()=>{
-    if(i<lines.length){
-      feed(a,lines[i++]);
-      after(a,900+Math.random()*1200,step);
-    }else{
-      a.status=opts.endIdle?"idle":"done";updateNode(a);refreshStats();
-      opts.onDone&&opts.onDone(a);
-    }
-  };
-  after(a,delay,step);
-  /* mid-work ping to a teammate */
-  if(opts.pingPool&&opts.pingPool.length&&Math.random()<0.85){
-    after(a,2200+Math.random()*3200,()=>{
-      if(a.status!=="working")return;
-      const others=opts.pingPool.filter(k=>k!==a.key);
-      if(others.length)ping(a,byKey[pick(others)]);
-    });
-  }
+/* ================= real project engine ================= */
+/* Everything here is driven by the REAL backend project status
+   (GET /api/project). An agent lights up only while its real step is
+   running; every feed line reflects a real event (step started / files
+   produced / failed). No canned output, no random activity. */
+let activeProject=null;   /* {id, agents:[...], seen:{}} */
+function wakeBoard(){}     /* no fake ambient activity — board is calm when idle */
+
+function resetBoard(){
+  AGENTS.forEach(a=>{a.status="idle";updateNode(a);});
+  refreshStats();
 }
 
-/* board simulation: CEO → PM → team, purely visual. The brain picks the
-   crew (opts.team); the only voice that makes claims is the real Claude
-   reply — the simulation itself announces nothing but its own end */
-function startMission(cmd,opts={}){
-  if(missionActive){cmdQ.push({cmd,opts});return;} /* re-entry guard: overlaps get queued */
-  missionActive=true;setCore("planning");
-  const teamKeys=(opts.team&&opts.team.length)?opts.team.slice():pickTeam(cmd);
-  /* reset previous done states */
-  AGENTS.forEach(a=>{if(a.status==="done"){a.status="idle";updateNode(a);}});
-  feed(byKey.CEO,`▶ Order: "${cmd.slice(0,60)}"`);
-  runAgent(byKey.CEO,{lines:byKey.CEO.logs,onDone:()=>{
-    interLinks.push({a:byKey.CEO,b:byKey.PM,ttl:2.4,color:byKey.CEO.ring});
-    runAgent(byKey.PM,{lines:byKey.PM.logs,pingPool:teamKeys,onDone:()=>{
-      setCore("executing");
-      let doneCount=0;
-      teamKeys.forEach((k,idx)=>{
-        setTimeout(()=>{
-          runAgent(byKey[k],{pingPool:teamKeys,onDone:()=>{
-            if(++doneCount===teamKeys.length)finishMission();
-          }});
-        },idx*1500);
-      });
-    }});
-  }});
-}
-function finishMission(){
-  setCore("idle");
-  feed(byKey.CEO,"Simulation finished — no real work was executed");
-  addMsg(T("doneReply"),false);
-  say(T("doneSay"));
-  missionActive=false;
-  if(cmdQ.length){const q=cmdQ.shift();setTimeout(()=>startMission(q.cmd,q.opts||{}),2000);}
+/* start a real project from a plan the brain produced */
+async function startProject(plan,title){
+  const agents=plan.map(s=>s.agent);
+  resetBoard();
+  /* mark all planned agents as waiting so the owner sees the crew */
+  agents.forEach(k=>{if(byKey[k]){byKey[k].status="wait";updateNode(byKey[k]);}});
+  setCore("planning");
+  try{
+    const r=await authFetch("/api/confirm",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({title,plan}),signal:AbortSignal.timeout(20000)});
+    if(r.status===401){TOKEN="";localStorage.removeItem("rabit_token");showLock();return null;}
+    const j=await r.json();
+    if(!j.project_id){addMsg(T("execFail")+" "+(j.error||""),false);resetBoard();setCore("idle");return null;}
+    addMsg(T("execSent"),false);
+    activeProject={id:j.project_id,agents,seen:{}};
+    setCore("executing");
+    pollProject();
+    return j.project_id;
+  }catch(e){addMsg(T("execFail")+" "+e,false);resetBoard();setCore("idle");return null;}
 }
 
-/* ambient life: small random activity so the board never feels dead.
-   Only runs once the real brain is connected — no fake life while offline */
-let boardAwake=false;
-function wakeBoard(){
-  if(boardAwake)return;boardAwake=true;
-  setTimeout(()=>{feed(byKey.CEO,"▶ Read COMPANY.md");},900);
-  setTimeout(()=>{feed(byKey.PM,"Reviewing the board backlog…");},2600);
-  ambient();
-}
-function ambient(){
-  const wait=8000+Math.random()*7000;
-  setTimeout(()=>{
-    if(!missionActive&&LIVE){
-      if(Math.random()<0.65){
-        const a=pick(AGENTS.filter(x=>x.status==="idle"||x.status==="done"));
-        if(a)runAgent(a,{lines:[pick(a.logs)],endIdle:true});
-      }else{
-        const pool=AGENTS.filter(x=>x.status!=="working");
-        const a=pick(pool),b=pick(pool.filter(x=>x!==a));
-        if(a&&b)ping(a,b);
+/* poll the REAL project status and reflect each real step transition */
+async function pollProject(){
+  if(!activeProject)return;
+  const p=activeProject;
+  let proj;
+  try{
+    const r=await authFetch("/api/project?id="+encodeURIComponent(p.id),{signal:AbortSignal.timeout(15000)});
+    if(r.status===401){TOKEN="";localStorage.removeItem("rabit_token");showLock();activeProject=null;return;}
+    proj=await r.json();
+  }catch(e){setTimeout(pollProject,4000);return;}
+  if(!proj||!proj.steps){setTimeout(pollProject,4000);return;}
+
+  proj.steps.forEach((s,i)=>{
+    const a=byKey[s.agent];if(!a)return;
+    const key=i+":"+s.status;
+    /* board state from the REAL step status */
+    if(s.status==="running"&&a.status!=="working"){a.status="working";updateNode(a);refreshStats();}
+    if(s.status==="done"&&a.status!=="done"){a.status="done";updateNode(a);refreshStats();}
+    if(s.status==="failed"&&a.status!=="fail"){a.status="fail";updateNode(a);refreshStats();}
+    /* one REAL feed line per new transition */
+    if(!p.seen[key]){
+      p.seen[key]=1;
+      if(s.status==="running"){
+        feed(a,"▶ "+(s.title||a.key)+" — "+T("stStarted"));
+        /* real handoff bolt from the previous agent */
+        const prev=proj.steps[i-1];if(prev&&byKey[prev.agent])interLinks.push({a:byKey[prev.agent],b:a,ttl:2.4,color:a.ring});
+      }else if(s.status==="done"){
+        const files=(s.files||"").split(",").filter(Boolean);
+        feed(a,"✔ "+T("stWrote")+": "+(files.length?files.join(", "):"—"));
+      }else if(s.status==="failed"){
+        feed(a,"✕ "+T("stFailed")+(s.error?": "+s.error.slice(0,60):""));
       }
     }
-    ambient();
-  },wait);
+  });
+
+  if(proj.status==="done"||proj.status==="failed"){
+    activeProject=null;setCore("idle");
+    if(proj.status==="done"){
+      projectDone(proj);
+    }else{
+      addMsg(T("execFail")+" "+(proj.error||""),false);say(T("execFail"));
+    }
+    return;
+  }
+  setTimeout(pollProject,3000);
+}
+
+function projectDone(proj){
+  addMsg(T("execDone"),false);say(T("execDone"));
+  const card=document.createElement("div");card.className="msg ai orderCard";
+  card.innerHTML=`<div class="ot">${T("execDone")}</div>`;
+  const a=document.createElement("a");a.className="open";
+  a.href=proj.url||("/deliverables/"+proj.id+"/");a.target="_blank";a.textContent=T("execOpen");
+  card.appendChild(a);
+  msgs.appendChild(card);msgs.scrollTop=msgs.scrollHeight;
 }
 
 /* ================= drawer ================= */
@@ -778,7 +729,7 @@ function openDrawer(a){
   dBubble.style.setProperty("--rc",a.ring);dBubble.style.setProperty("--tc",a.tc);
   dTitle.textContent=lang==="ar"?a.ar:a.en;
   dRole.textContent=a.en;
-  dTask.textContent=missionActive?T("task"):T("noTask");
+  dTask.textContent=activeProject?T("task"):T("noTask");
   dLive.style.display=(a.status==="working"||a.status==="talking")?"inline-flex":"none";
   dStream.innerHTML="";
   if(a.buf.length){
@@ -810,11 +761,11 @@ function addTyping(){
   return el;
 }
 
-/* LIVE mode: the real Claude brain answers, picks the crew, and may return a
-   real work order the owner can confirm to execute for real */
+/* LIVE mode: the real Claude brain answers, and may return a REAL work plan
+   (ordered steps) the owner can confirm to execute for real on the server */
 async function askBrain(v){
   const th=addTyping();
-  if(!missionActive)setCore("planning");
+  if(!activeProject)setCore("planning");
   try{
     const r=await authFetch("/api/chat",{
       method:"POST",headers:{"Content-Type":"application/json"},
@@ -824,74 +775,50 @@ async function askBrain(v){
     const j=await r.json().catch(()=>null);
     if(!r.ok){
       if(j&&j.reply){th.remove();addMsg(j.reply,false);say(j.reply);
-        if(!missionActive)setCore("idle");return;}
+        if(!activeProject)setCore("idle");return;}
       throw 0;
     }
     if(!j)throw 0;
     th.remove();
     const reply=(j.reply||"").trim();
-    const team=(j.team||[]).filter(k=>byKey[k]&&k!=="CEO"&&k!=="PM");
-    const order=j.order;
-    if(!reply&&!team.length&&!order)throw 0;
+    const plan=Array.isArray(j.plan)?j.plan.filter(s=>s&&byKey[s.agent]):null;
+    if(!reply&&!(plan&&plan.length))throw 0;
     if(reply){addMsg(reply,false);say(reply);}
-    if(order&&order.spec)orderCard(order);   /* real execution offer */
-    if(team.length){
-      if(missionActive){cmdQ.push({cmd:v,opts:{team,quiet:true}});addMsg(T("queued"),false);}
-      else startMission(v,{team,quiet:true});
-    }else if(!missionActive&&!order)setCore("idle");
+    if(plan&&plan.length){
+      if(activeProject)addMsg(T("execRunning"),false);   /* one real project at a time */
+      else planCard(plan,reply||v);
+    }else if(!activeProject)setCore("idle");
   }catch(e){
     th.remove();
     addMsg(T("offline"),false);
-    if(!missionActive)setCore("idle");
+    if(!activeProject)setCore("idle");
   }
 }
 
-/* render a confirm-to-execute card; on confirm, enqueue a real job and poll it */
-function orderCard(order){
+/* show the REAL plan the brain produced; on confirm, run it for real and let
+   the board reflect the actual step-by-step execution (startProject) */
+function planCard(plan,title){
   msgs.classList.add("open");
   const card=document.createElement("div");card.className="msg ai orderCard";
-  const desc=(order.title||"").slice(0,140);
-  card.innerHTML=`<div class="ot">${T("execTitle")}</div><div class="odesc"></div>`+
-    `<button>${T("execConfirm")}</button>`;
-  card.querySelector(".odesc").textContent=desc;
-  const btn=card.querySelector("button");
+  card.innerHTML=`<div class="ot">${T("execTitle")}</div>`;
+  const intro=document.createElement("div");intro.className="odesc";intro.textContent=T("planIntro");
+  card.appendChild(intro);
+  plan.forEach((s,i)=>{
+    const a=byKey[s.agent];
+    const row=document.createElement("div");row.className="odesc";
+    row.textContent=(i+1)+". "+a.key+" — "+((s.title||"")).slice(0,120);
+    card.appendChild(row);
+  });
+  const btn=document.createElement("button");btn.textContent=T("execConfirm");
+  card.appendChild(btn);
   btn.onclick=async()=>{
     btn.disabled=true;
-    try{
-      const r=await authFetch("/api/confirm",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({title:order.title,spec:order.spec}),signal:AbortSignal.timeout(20000)});
-      if(r.status===401){TOKEN="";localStorage.removeItem("rabit_token");showLock();return;}
-      const j=await r.json();
-      if(!j.job_id){btn.disabled=false;addMsg(T("execFail")+" "+(j.error||""),false);return;}
-      card.querySelector(".ot").textContent=T("execRunning");
-      btn.remove();
-      const wait=document.createElement("div");wait.className="odesc";wait.textContent=T("execWait");
-      card.appendChild(wait);
-      addMsg(T("execSent"),false);
-      pollJob(j.job_id,card,wait);
-    }catch(e){btn.disabled=false;addMsg(T("execFail")+" "+e,false);}
+    const pid=await startProject(plan,(title||"").slice(0,160));
+    if(!pid){btn.disabled=false;return;}
+    card.querySelector(".ot").textContent=T("execRunning");
+    btn.remove();
   };
   msgs.appendChild(card);msgs.scrollTop=msgs.scrollHeight;
-}
-async function pollJob(id,card,wait){
-  for(let i=0;i<220;i++){          /* up to ~18 min */
-    await new Promise(r=>setTimeout(r,5000));
-    let j;try{
-      const r=await authFetch("/api/job?id="+encodeURIComponent(id),{signal:AbortSignal.timeout(15000)});
-      j=await r.json();
-    }catch(e){continue;}
-    if(j.status==="done"){
-      card.querySelector(".ot").textContent=T("execDone");wait.remove();
-      const a=document.createElement("a");a.className="open";a.href=(j.url||("/deliverables/"+id+"/"));
-      a.target="_blank";a.textContent=T("execOpen");card.appendChild(a);
-      say(T("execDone"));return;
-    }
-    if(j.status==="failed"){
-      card.querySelector(".ot").textContent=T("execFail");
-      wait.textContent=(j.error||"").slice(0,200);say(T("execFail"));return;
-    }
-  }
-  wait.textContent="…";
 }
 
 function send(){
