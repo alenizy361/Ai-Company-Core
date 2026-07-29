@@ -1,0 +1,78 @@
+// GET /api/health — real checks only: database round-trip, worker heartbeat
+// freshness, SSE client count, selected model adapter (+ why), voice provider
+// matrix. Nothing here reports healthy without actually checking.
+import type { Db } from '../../shared/db.ts';
+import type { Router } from '../router.ts';
+import { json } from '../router.ts';
+import type { SseHub } from '../sse.ts';
+import type { SystemConfig } from '../../shared/config.ts';
+import { loadVoiceConfig } from '../../shared/config.ts';
+
+export interface AdapterInfo {
+  name: string;
+  reason: string;
+  model?: string;
+}
+
+export function registerHealthRoute(
+  router: Router,
+  db: Db,
+  hub: SseHub,
+  cfg: SystemConfig,
+  getAdapterInfo: () => AdapterInfo,
+): void {
+  router.get('/api/health', ({ res }) => {
+    const now = Date.now();
+    let dbOk = false;
+    let dbError: string | null = null;
+    try {
+      db.get('SELECT 1 AS ok');
+      dbOk = true;
+    } catch (err) {
+      dbError = err instanceof Error ? err.message : String(err);
+    }
+
+    const workers = dbOk
+      ? db.all<{ id: string; last_heartbeat_at: number; status: string }>(
+          `SELECT id, last_heartbeat_at, status FROM workers WHERE last_heartbeat_at > ?`,
+          now - cfg.staleWorkerMs * 4,
+        )
+      : [];
+    const freshWorkers = workers.filter((w) => w.status === 'online' && w.last_heartbeat_at > now - cfg.staleWorkerMs);
+
+    const voiceCfg = loadVoiceConfig();
+    const voiceProviders = {
+      stt: process.env[voiceCfg.providers.stt.keyEnv] ? voiceCfg.providers.stt.primary : voiceCfg.providers.stt.fallback,
+      tts: process.env[voiceCfg.providers.tts.keyEnv] ? voiceCfg.providers.tts.primary : voiceCfg.providers.tts.fallback,
+      wake: process.env[voiceCfg.providers.wake.keyEnv] ? voiceCfg.providers.wake.primary : voiceCfg.providers.wake.fallback,
+      transport: voiceCfg.providers.transport.keyEnvs.every((e) => process.env[e])
+        ? voiceCfg.providers.transport.primary
+        : voiceCfg.providers.transport.fallback,
+    };
+
+    const pendingApprovals = dbOk
+      ? db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM approvals WHERE status = 'pending'`)?.n ?? 0
+      : 0;
+    const lastEvent = dbOk
+      ? db.get<{ seq: number; created_at: number } | undefined>(
+          'SELECT seq, created_at FROM execution_events ORDER BY seq DESC LIMIT 1',
+        )
+      : undefined;
+
+    json(res, 200, {
+      ok: dbOk,
+      serverTime: now,
+      db: { ok: dbOk, error: dbError },
+      worker: {
+        online: freshWorkers.length > 0,
+        count: freshWorkers.length,
+        lastHeartbeatAt: workers[0]?.last_heartbeat_at ?? null,
+        staleAfterMs: cfg.staleWorkerMs,
+      },
+      sse: { clients: hub.clientCount(), lastSeq: hub.lastSeq(), lastEventAt: lastEvent?.created_at ?? null },
+      adapter: getAdapterInfo(),
+      voiceProviders,
+      pendingApprovals,
+    });
+  });
+}

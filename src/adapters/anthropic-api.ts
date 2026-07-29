@@ -1,0 +1,58 @@
+// Anthropic API adapter via the official SDK. Used automatically when
+// ANTHROPIC_API_KEY is configured. Plain text completion — no tools are
+// declared; the worker owns all tool execution.
+import Anthropic from '@anthropic-ai/sdk';
+import { AdapterError, type CompletionRequest, type CompletionResult, type ModelAdapter } from './types.ts';
+
+const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-opus-5';
+
+export class AnthropicApiAdapter implements ModelAdapter {
+  readonly name = 'anthropic-api' as const;
+  private client: Anthropic | null = null;
+
+  private getClient(): Anthropic {
+    if (!this.client) this.client = new Anthropic();
+    return this.client;
+  }
+
+  async complete(req: CompletionRequest): Promise<CompletionResult> {
+    try {
+      const response = await this.getClient().messages.create({
+        model: DEFAULT_MODEL,
+        max_tokens: 16000,
+        system: req.system,
+        messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
+      });
+
+      if (response.stop_reason === 'refusal') {
+        throw new AdapterError('anthropic-api', 'model declined the request (stop_reason=refusal)', false);
+      }
+
+      const text = response.content
+        .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+        .map((block) => block.text)
+        .join('');
+
+      return {
+        text,
+        usage: { input: response.usage.input_tokens, output: response.usage.output_tokens },
+        model: response.model,
+      };
+    } catch (err) {
+      if (err instanceof AdapterError) throw err;
+      if (err instanceof Anthropic.RateLimitError) {
+        throw new AdapterError('anthropic-api', `rate limited: ${err.message}`, true);
+      }
+      if (err instanceof Anthropic.InternalServerError) {
+        throw new AdapterError('anthropic-api', `server error: ${err.message}`, true);
+      }
+      if (err instanceof Anthropic.APIConnectionError) {
+        throw new AdapterError('anthropic-api', `connection error: ${err.message}`, true);
+      }
+      if (err instanceof Anthropic.APIError) {
+        throw new AdapterError('anthropic-api', `API error ${err.status}: ${err.message}`, false);
+      }
+      throw new AdapterError('anthropic-api', err instanceof Error ? err.message : String(err), false);
+    }
+  }
+}

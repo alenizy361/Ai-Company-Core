@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RABIT OS</title>
+<style>
+  :root{
+    --bg:#070b16; --card:#0a0f1f; --line:#1b2340; --text:#e8ecff; --dim:#8b93c4;
+    --cyan:#38e1ff; --violet:#b18cff; --green:#4ade80; --amber:#fbbf24; --red:#fb7185; --gray:#64748b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;padding:16px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  h1{font-size:18px;font-weight:800}
+  .badge{font-size:10px;font-weight:800;letter-spacing:1.5px;padding:4px 10px;border-radius:999px;border:1px solid var(--line)}
+  .badge.offline{background:rgba(251,113,133,.12);color:var(--red);border-color:rgba(251,113,133,.4)}
+  .badge.live{background:rgba(74,222,128,.12);color:var(--green);border-color:rgba(74,222,128,.4)}
+  .badge.mock{background:rgba(251,191,36,.12);color:var(--amber);border-color:rgba(251,191,36,.4)}
+  #adapterNote{font-size:11px;color:var(--dim)}
+  ul{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+  li{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--gray);flex:none}
+  .st-idle .dot{background:var(--green)} .st-running .dot,.st-verifying .dot{background:var(--cyan)}
+  .st-queued .dot,.st-waiting_for_dependency .dot,.st-waiting_for_tool .dot,.st-waiting_for_approval .dot{background:var(--amber)}
+  .st-failed .dot,.st-blocked .dot{background:var(--red)}
+  .st-offline .dot,.st-not_configured .dot{background:var(--gray)}
+  li b{font-size:13px} li span{font-size:11px;color:var(--dim);margin-inline-start:auto}
+  #meta{margin-top:14px;font-size:11px;color:var(--dim);line-height:1.7}
+</style>
+</head>
+<body>
+<header>
+  <h1>RABIT OS</h1>
+  <span class="badge offline" id="connBadge">CONNECTING…</span>
+  <span class="badge" id="workerBadge" hidden>WORKER</span>
+  <span id="adapterNote"></span>
+</header>
+<ul id="agents"></ul>
+<div id="meta"></div>
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>
