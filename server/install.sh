@@ -37,6 +37,36 @@ fi
 touch /etc/rabit-brain.env
 chmod 600 /etc/rabit-brain.env
 
+echo "==> Picking a free port for the brain..."
+systemctl stop rabit-brain 2>/dev/null || true
+port_free() {
+  python3 - "$1" <<'PY' 2>/dev/null
+import socket, sys
+s = socket.socket()
+try:
+    s.bind(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    sys.exit(1)
+PY
+}
+PORT=$(grep -oP '^RABIT_PORT=\K[0-9]+' /etc/rabit-brain.env 2>/dev/null | head -1 || true)
+if [ -n "$PORT" ] && ! port_free "$PORT"; then
+  echo "    port $PORT (from RABIT_PORT) is taken by another program — picking a new one"
+  sed -i '/^RABIT_PORT=/d' /etc/rabit-brain.env
+  PORT=""
+fi
+if [ -z "$PORT" ]; then
+  PORT=8787
+  if ! port_free "$PORT"; then
+    for p in 8899 8901 8917 9411 9737; do
+      if port_free "$p"; then PORT=$p; break; fi
+    done
+    echo "RABIT_PORT=$PORT" >> /etc/rabit-brain.env
+    echo "    8787 is taken by another program — using $PORT instead"
+  fi
+fi
+echo "    brain port: $PORT"
+
 echo "==> Installing systemd service rabit-brain..."
 cat > /etc/systemd/system/rabit-brain.service <<'EOF'
 [Unit]
@@ -75,6 +105,7 @@ server {
     }
 }
 EOF
+sed -i "s|127.0.0.1:8787|127.0.0.1:$PORT|" /etc/nginx/sites-available/rabit-dashboard
 # park any other enabled site so our default_server doesn't collide
 mkdir -p /root/nginx-backup
 for f in /etc/nginx/sites-enabled/*; do
