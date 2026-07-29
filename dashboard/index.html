@@ -241,6 +241,8 @@ const I18N={
       stIdle:"جاهزة",stPlan:"تخطط",stExec:"تنفّذ",
       chipWork:"يعمل…",chipDone:"تم ✅",chipTalk:"يتكلم",
       busy:"الفريق مشغول بمهمة حالية — أضفت أمرك للطابور وسننفذه بعدها مباشرة ⏳",
+      queued:"أضفت المهمة لطابور التنفيذ — تبدأ فور انتهاء المهمة الحالية ⏳",
+      thinking:"النواة تفكر…",
       planReply:(names)=>`وصلني أمرك يا مدير ✅ حللت المهمة وكلفت الفريق: ${names}. تابعهم الآن مباشرة على اللوحة 👇`,
       planSay:(names)=>`تم استلام الأمر. كلفت ${names}. بدأ التنفيذ الآن.`,
       doneReply:(names)=>`اكتملت المهمة يا مدير ✅ الفريق (${names}) أنهى كل التكليفات وسلّم الشغل. جاهزين لأمرك التالي.`,
@@ -255,6 +257,8 @@ const I18N={
       stIdle:"Online",stPlan:"Planning",stExec:"Executing",
       chipWork:"working…",chipDone:"done ✅",chipTalk:"talking",
       busy:"The team is busy on a mission — your order was queued and runs next ⏳",
+      queued:"Added to the execution queue — starts right after the current mission ⏳",
+      thinking:"Core is thinking…",
       planReply:(names)=>`Order received, boss ✅ I analyzed it and assigned: ${names}. Watch them live on the board 👇`,
       planSay:(names)=>`Order received. I assigned ${names}. Execution starts now.`,
       doneReply:(names)=>`Mission complete, boss ✅ The team (${names}) finished all assignments. Ready for your next order.`,
@@ -349,12 +353,20 @@ const PINGS={
 const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
 
 /* ================= live probe ================= */
+/* LIVE = a real Claude brain answers /api/chat (see server/rabit-brain.py);
+   otherwise the page runs its built-in demo engine */
+if(!("timeout" in AbortSignal)){ /* older Safari/WebView */
+  AbortSignal.timeout=ms=>{const c=new AbortController();setTimeout(()=>c.abort(),ms);return c.signal;};
+}
 let LIVE=false;
 async function probeLive(){
   try{
     const r=await fetch("/api/health",{signal:AbortSignal.timeout(2500)});
     if(!r.ok)throw 0;
-    LIVE=true;modeBadge.textContent="LIVE";modeBadge.className="live";
+    const j=await r.json().catch(()=>null);
+    if(j&&j.ok&&j.brain&&j.brain!=="none"){
+      LIVE=true;modeBadge.textContent="LIVE";modeBadge.className="live";
+    }
   }catch(e){}
   stAgents.textContent=AGENTS.length;
 }
@@ -621,13 +633,15 @@ function runAgent(a,opts={}){
   }
 }
 
-/* full mission: CEO approves → PM assigns → team executes in parallel */
-function startMission(cmd){
+/* full mission: CEO approves → PM assigns → team executes in parallel.
+   opts.team lets the live brain pick the crew; opts.quiet skips the canned
+   announcement (the brain already replied in its own words) */
+function startMission(cmd,opts={}){
+  if(missionActive){cmdQ.push({cmd,opts});return;} /* re-entry guard: overlaps get queued */
   missionActive=true;setCore("planning");
-  const teamKeys=pickTeam(cmd);
+  const teamKeys=(opts.team&&opts.team.length)?opts.team.slice():pickTeam(cmd);
   const names=teamKeys.map(k=>lang==="ar"?byKey[k].ar:byKey[k].en).join(lang==="ar"?"، ":", ");
-  addMsg(T("planReply")(names),false);
-  say(T("planSay")(names));
+  if(!opts.quiet){addMsg(T("planReply")(names),false);say(T("planSay")(names));}
   /* reset previous done states */
   AGENTS.forEach(a=>{if(a.status==="done"){a.status="idle";updateNode(a);}});
   feed(byKey.CEO,`▶ Order: "${cmd.slice(0,60)}"`);
@@ -652,7 +666,7 @@ function finishMission(names){
   addMsg(T("doneReply")(names),false);
   say(T("doneSay"));
   missionActive=false;
-  if(cmdQ.length)setTimeout(()=>startMission(cmdQ.shift()),2000);
+  if(cmdQ.length){const q=cmdQ.shift();setTimeout(()=>startMission(q.cmd,q.opts||{}),2000);}
 }
 
 /* ambient life: small random activity so the board never feels dead */
@@ -698,10 +712,60 @@ function addMsg(txt,me){
   const el=document.createElement("div");el.className="msg "+(me?"me":"ai");el.textContent=txt;
   msgs.appendChild(el);msgs.scrollTop=msgs.scrollHeight;
 }
+/* stable per-browser session id so the brain keeps conversation memory */
+let SID=localStorage.getItem("rabit_sid");
+if(!SID){SID=Date.now().toString(36)+Math.random().toString(36).slice(2,10);
+  try{localStorage.setItem("rabit_sid",SID);}catch(e){}}
+
+function addTyping(){
+  msgs.classList.add("open");
+  const el=document.createElement("div");el.className="msg ai";
+  el.textContent=T("thinking");
+  msgs.appendChild(el);msgs.scrollTop=msgs.scrollHeight;
+  let n=0;const iv=setInterval(()=>{el.textContent=T("thinking")+" "+"•".repeat(n%3+1);n++;},450);
+  const rm=el.remove.bind(el);el.remove=()=>{clearInterval(iv);rm();};
+  return el;
+}
+
+/* LIVE mode: the real Claude brain answers and picks the crew */
+async function askBrain(v){
+  const th=addTyping();
+  if(!missionActive)setCore("planning");
+  try{
+    const r=await fetch("/api/chat",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({message:v,lang,session:SID}),
+      signal:AbortSignal.timeout(240000)});
+    const j=await r.json().catch(()=>null);
+    if(!r.ok){
+      /* the server puts user-facing text (e.g. rate-limit notice) in j.reply */
+      if(j&&j.reply){th.remove();addMsg(j.reply,false);say(j.reply);
+        if(!missionActive)setCore("idle");return;}
+      throw 0;
+    }
+    if(!j)throw 0;
+    th.remove();
+    const reply=(j.reply||"").trim();
+    const team=(j.team||[]).filter(k=>byKey[k]&&k!=="CEO"&&k!=="PM");
+    if(!reply&&!team.length)throw 0; /* nothing usable → demo fallback */
+    if(reply){addMsg(reply,false);say(reply);}
+    if(team.length){
+      if(missionActive){cmdQ.push({cmd:v,opts:{team,quiet:true}});addMsg(T("queued"),false);}
+      else startMission(v,{team,quiet:true});
+    }else if(!missionActive)setCore("idle");
+  }catch(e){
+    th.remove();
+    /* brain unreachable → fall back to the built-in demo engine */
+    if(missionActive){cmdQ.push({cmd:v});addMsg(T("busy"),false);say(T("busy"));}
+    else startMission(v);
+  }
+}
+
 function send(){
   const v=inp.value.trim();if(!v)return;
   inp.value="";addMsg(v,true);
-  if(missionActive){cmdQ.push(v);addMsg(T("busy"),false);say(T("busy"));return;}
+  if(LIVE){askBrain(v);return;}
+  if(missionActive){cmdQ.push({cmd:v});addMsg(T("busy"),false);say(T("busy"));return;}
   setTimeout(()=>startMission(v),500);
 }
 sendBtn.onclick=send;
@@ -733,6 +797,7 @@ micBtn.onclick=async()=>{
 
 /* ================= boot ================= */
 buildNodes();applyLang();resize();draw();probeLive();refreshStats();
+setInterval(()=>{if(!LIVE)probeLive();},30000); /* keep trying if the brain comes up later */
 ambient();
 /* a little opening activity so the board is alive on first load */
 setTimeout(()=>{feed(byKey.CEO,"▶ Read COMPANY.md");},900);

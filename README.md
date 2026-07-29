@@ -47,6 +47,9 @@ projects/onboarding/
 tasks/weekly-review/TASK.md             recurring, assignee: ceo
 .paperclip.yaml                         adapter config, quota notes, cron routine
 scripts/setup.sh                        onboard Paperclip + import this company
+dashboard/index.html                    self-contained voice dashboard (demo or live)
+server/rabit-brain.py                   Claude chat backend that makes it live
+server/install.sh                       one-shot VPS installer (dashboard+brain+nginx)
 ```
 
 ## Quickstart
