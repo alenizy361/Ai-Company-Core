@@ -927,6 +927,26 @@ def ask_cli(history, message):
 
 
 # ---------------- neural TTS proxy (optional) ----------------
+_tts_last_error = ""
+
+
+def tts_hint():
+    """Why the neural voice is not being heard.
+
+    A failing provider degrades to the browser's built-in synthesizer, which
+    sounds robotic — indistinguishable from never having configured one. The
+    owner needs to see the cause without reading logs, so surface it here.
+    """
+    if TTS_MODE == "browser":
+        return ""
+    if TTS_MODE == "azure" and not (os.environ.get("AZURE_TTS_KEY") and
+                                    os.environ.get("AZURE_TTS_REGION")):
+        return "AZURE_TTS_KEY/AZURE_TTS_REGION missing — falling back to the browser voice"
+    if TTS_MODE == "elevenlabs" and not os.environ.get("ELEVEN_KEY"):
+        return "ELEVEN_KEY missing — falling back to the browser voice"
+    return _tts_last_error
+
+
 def synth_tts(text, lang):
     text = text[:1200]
     if TTS_MODE == "azure":
@@ -1034,6 +1054,9 @@ class Handler(BaseHTTPRequestHandler):
             h = brain_hint()
             if h:
                 out["hint"] = h
+            th = tts_hint()
+            if th:
+                out["tts_error"] = th
             self._send(200, out)
             return
         if path == "/api/project":
@@ -1062,10 +1085,20 @@ class Handler(BaseHTTPRequestHandler):
             text = str(data.get("text", "")).strip()
             if not text or TTS_MODE == "browser":
                 self._send(204 if TTS_MODE == "browser" else 400, {}); return
+            global _tts_last_error
             try:
                 audio = synth_tts(text, data.get("lang", "ar"))
-            except Exception:
+                if audio:
+                    _tts_last_error = ""
+                elif not _tts_last_error:
+                    _tts_last_error = "%s returned no audio" % TTS_MODE
+            except Exception as exc:
                 audio = None
+                # never let the key reach a log line or the health endpoint
+                detail = re.sub(r"[A-Za-z0-9_\-]{24,}", "***", str(exc))[:200]
+                _tts_last_error = "%s: %s" % (TTS_MODE, detail)
+                print("TTS failed (%s) — falling back to browser voice: %s"
+                      % (TTS_MODE, detail), flush=True)
             if not audio:
                 self._send(204, {}); return
             self.send_response(200)
