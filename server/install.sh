@@ -57,7 +57,16 @@ chmod -R go-w /opt/rabit-brain
 say "Configuring..."
 touch "$ENVF"; chmod 640 "$ENVF"; chown "root:$RUSER" "$ENVF"
 get(){ grep -oP "^$1=\K.*" "$ENVF" 2>/dev/null | head -1 || true; }
-put(){ grep -q "^$1=" "$ENVF" && sed -i "s|^$1=.*|$1=$2|" "$ENVF" || echo "$1=$2" >> "$ENVF"; }
+# Never let a blank answer erase a stored secret. `ask` reads the shell
+# environment, which is empty on a re-run, so pressing Enter at a prompt used
+# to overwrite a working key with "" — the service kept its mode, lost its
+# credential, and degraded silently.
+put(){ if [ -z "${2:-}" ] && [ -n "$(get "$1")" ]; then return 0; fi
+  grep -q "^$1=" "$ENVF" && sed -i "s|^$1=.*|$1=$2|" "$ENVF" || echo "$1=$2" >> "$ENVF"; }
+# ask, but treat an already-saved value as the answer so we never re-prompt
+# for a secret that is present
+askc(){ local cur; cur=$(get "$1"); [ -n "$cur" ] && { printf '%s' "$cur"; return; }
+  ask "$1" "$2" "${3:-}"; }
 
 # access code (owner token) — generate once, keep across re-runs
 TOKEN=$(get RABIT_TOKEN); [ -z "$TOKEN" ] && TOKEN=$(openssl rand -hex 16)
@@ -90,9 +99,11 @@ CBIN=$(sudo -u "$RUSER" -H bash -lc 'command -v claude' 2>/dev/null || true)
 VMODE=$(get RABIT_TTS); [ -z "$VMODE" ] && VMODE=$(ask RABIT_TTS \
   "Voice output? [browser=free default / azure / elevenlabs]" browser)
 put RABIT_TTS "${VMODE:-browser}"
-[ "$VMODE" = azure ] && { put AZURE_TTS_KEY "$(ask AZURE_TTS_KEY 'Azure Speech key' '')"
-                          put AZURE_TTS_REGION "$(ask AZURE_TTS_REGION 'Azure region (e.g. eastus)' '')"; }
-[ "$VMODE" = elevenlabs ] && put ELEVEN_KEY "$(ask ELEVEN_KEY 'ElevenLabs API key' '')"
+[ "$VMODE" = azure ] && { put AZURE_TTS_KEY "$(askc AZURE_TTS_KEY 'Azure Speech key' '')"
+                          put AZURE_TTS_REGION "$(askc AZURE_TTS_REGION 'Azure region (e.g. eastus)' '')"; }
+[ "$VMODE" = elevenlabs ] && {
+  put ELEVEN_KEY "$(askc ELEVEN_KEY 'ElevenLabs API key' '')"
+  put ELEVEN_VOICE "$(askc ELEVEN_VOICE 'ElevenLabs voice id (blank = default)' '21m00Tcm4TlvDq8ikWAM')"; }
 
 # telegram (optional)
 TG=$(get TELEGRAM_TOKEN); [ -z "$TG" ] && TG=$(ask TELEGRAM_TOKEN \
@@ -283,6 +294,23 @@ say "Verifying..."
 systemctl is-active --quiet rabit-brain || { warn "rabit-brain not running:"; journalctl -u rabit-brain -n 15 --no-pager || true; }
 HEALTH=$(curl -s --max-time 5 http://localhost/api/health || true)
 echo "Brain health: $HEALTH"
+
+# A configured neural voice that fails degrades to the browser's robotic
+# synthesizer and says nothing about it. Ask for one sample and report.
+if [ "$VMODE" != browser ]; then
+  TCODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -X POST \
+    http://localhost/api/tts -H "Authorization: Bearer $TOKEN" \
+    -H 'Content-Type: application/json' \
+    -d '{"text":"مرحبا","lang":"ar"}' 2>/dev/null || echo 000)
+  if [ "$TCODE" = 200 ]; then ok "Voice: $VMODE returned real audio"
+  else
+    warn "Voice: $VMODE produced NO audio (HTTP $TCODE) — the site will fall back"
+    warn "to the robotic browser voice. Reason:"
+    curl -s --max-time 5 http://localhost/api/health \
+      | grep -oP '"tts_error":\s*"\K[^"]*' | sed 's/^/    /' || true
+    warn "Logs: journalctl -u rabit-brain -n 30 --no-pager | grep -i tts"
+  fi
+fi
 URL="http://$( [ -n "$DOMAIN" ] && echo "$DOMAIN" || echo "$(hostname -I | awk '{print $1}')" )"
 [ -n "$DOMAIN" ] && URL="https://$DOMAIN"
 echo
