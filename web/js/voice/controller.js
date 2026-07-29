@@ -42,6 +42,10 @@ export class VoiceController {
     this.tts = new SpeechSynthesisTTS(this.store);
     this.conversationId = prefs.get('conversationId') || null;
     this.lang = prefs.get('lang') || 'en';
+    // Speech language is independent of the interface language: it follows
+    // the language the owner actually uses (spoken or typed), persisted, so
+    // an Arabic speaker on an English UI is still recognized.
+    this.speechLang = prefs.get('speechLang') || this.lang;
     this.busy = false;
     this.holding = false;
     this.continuous = prefs.bool('continuous');
@@ -150,7 +154,7 @@ export class VoiceController {
       if (captureOk && this.stt.available) {
         this.store.transition('listening', 'capture');
         const sttStart = performance.now();
-        const result = await this.stt.start(this.lang, (interim) => this.ui.onTranscript?.(interim, false));
+        const result = await this.stt.start(this.speechLang, (interim) => this.ui.onTranscript?.(interim, false));
         if (result?.text) {
           text = result.text;
           this.store.reportMetrics([{ metric: 'stt_turn', value_ms: performance.now() - sttStart }]);
@@ -175,6 +179,14 @@ export class VoiceController {
 
   /** Shared by voice turns and the typed chat drawer (same conversation). */
   async sendText(text, modality, t0 = performance.now()) {
+    // Every message (typed or spoken) teaches the recognizer which language
+    // to listen for next — so typing Arabic once fixes Arabic voice input
+    // even while the interface stays English.
+    const detected = isArabic(text) ? 'ar' : 'en';
+    if (detected !== this.speechLang) {
+      this.speechLang = detected;
+      prefs.set('speechLang', detected);
+    }
     this.abortCtrl = new AbortController();
     this.ui.onGenerating?.(true);
     let response;

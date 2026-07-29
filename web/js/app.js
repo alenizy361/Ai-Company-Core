@@ -113,7 +113,12 @@ const voice = new VoiceController({
 });
 voiceRef = voice;
 voice.lang = locale.get();
-locale.subscribe((lang) => { voice.lang = lang; });
+locale.subscribe((lang) => {
+  voice.lang = lang;
+  // An explicit interface-language choice also retargets speech recognition
+  // (the next spoken/typed message can still switch it back).
+  voice.speechLang = lang;
+});
 
 function setReplyText(text) {
   const line = $('replyLine');
