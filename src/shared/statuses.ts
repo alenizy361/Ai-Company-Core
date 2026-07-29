@@ -28,7 +28,7 @@ const TASK_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   waiting_for_dependency: ['queued', 'running', 'blocked', 'cancelled'],
   blocked: ['queued', 'failed', 'cancelled'],
   running: ['waiting_for_tool', 'waiting_for_approval', 'verifying', 'failed', 'cancelled', 'queued'],
-  waiting_for_tool: ['running', 'failed', 'cancelled', 'queued'],
+  waiting_for_tool: ['running', 'waiting_for_approval', 'failed', 'cancelled', 'queued'],
   waiting_for_approval: ['running', 'failed', 'cancelled', 'queued'],
   verifying: ['completed', 'running', 'failed', 'cancelled', 'queued'],
   failed: ['queued'],
