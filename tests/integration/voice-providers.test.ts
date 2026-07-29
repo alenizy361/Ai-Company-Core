@@ -135,6 +135,29 @@ test('local espeak TTS: zero-key Arabic synthesis through the same relay', async
   assert.ok(bytes.length > 1000, `audio has substance (${bytes.length} bytes)`);
 });
 
+test('keyed Fish Audio failing upstream (e.g. no credit) falls back to the local voice', async (t) => {
+  if (!espeakBin()) return t.skip('espeak-ng not installed on this machine');
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const router = new Router();
+  registerVoiceProviderRoutes(router, env.db, {
+    env: { FISH_AUDIO_API_KEY: 'fish-key-without-credit' },
+    fetchImpl: async () => new Response(JSON.stringify({ message: 'Insufficient API credit', status: 402 }), { status: 402 }),
+  });
+  const srv = await startServer(router);
+  t.after(srv.close);
+  const session = createVoiceSession(env.db, 'test', 900);
+
+  const res = await fetch(`${srv.base}/api/voice/tts?session=${session.id}&token=${session.token}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'fallback keeps the voice alive.' }),
+  });
+  assert.equal(res.status, 200, 'no silence: local voice serves the reply');
+  assert.equal(res.headers.get('x-sira-tts-provider'), 'espeak-fallback');
+  const bytes = Buffer.from(await res.arrayBuffer());
+  assert.equal(bytes.subarray(0, 4).toString(), 'RIFF');
+});
+
 test('mintLivekitToken is deterministic and time-bounded', () => {
   const token = mintLivekitToken('k', 's', 'me', 'room', 60, 1000000);
   const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) as { exp: number; nbf: number };

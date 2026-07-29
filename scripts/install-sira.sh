@@ -114,6 +114,24 @@ if [ "$WITH_SERVICES" = true ]; then
     if command -v claude >/dev/null 2>&1; then
       SERVICE_PATH="$(dirname "$(command -v claude)"):$SERVICE_PATH"
     fi
+    # Provider keys live in one env file that SURVIVES reinstalls — the unit
+    # files are regenerated every run, so keys must never be written there.
+    ENV_FILE="$HOME/.config/sira/env"
+    if [ ! -f "$ENV_FILE" ]; then
+      mkdir -p "$(dirname "$ENV_FILE")"
+      cat > "$ENV_FILE" <<'ENVT'
+# SIRA provider keys — edit, then: systemctl --user restart sira-api sira-worker
+# FISH_AUDIO_API_KEY=            # premium voice (falls back to espeak-ng without it)
+# DEEPGRAM_API_KEY=              # premium speech recognition
+# PICOVOICE_ACCESS_KEY=          # wake word
+# LIVEKIT_URL=
+# LIVEKIT_API_KEY=
+# LIVEKIT_API_SECRET=
+# OWNER_TOKEN=                   # required only when exposing beyond localhost
+# PORT=4600
+ENVT
+      chmod 600 "$ENV_FILE"
+    fi
     for svc in api worker; do
       ENTRY="src/server/index.ts"; DESC="SIRA OS API server"
       if [ "$svc" = worker ]; then ENTRY="src/worker/index.ts"; DESC="SIRA OS execution worker"; fi
@@ -129,8 +147,7 @@ Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
 Environment=PATH=$SERVICE_PATH
-# Environment=PORT=4600
-# Environment=OWNER_TOKEN=change-me-if-exposing-beyond-localhost
+EnvironmentFile=-$ENV_FILE
 
 [Install]
 WantedBy=default.target
@@ -159,9 +176,9 @@ if [ "$LIVE_MODEL" = true ]; then
 else
   echo "    Model:     MOCK MODE until 'claude login' or ANTHROPIC_API_KEY — the UI shows a banner"
 fi
-echo "    Voice:     works now with browser providers; add DEEPGRAM_API_KEY /"
-echo "               FISH_AUDIO_API_KEY / PICOVOICE_ACCESS_KEY / LIVEKIT_* env"
-echo "               vars to the services to switch on the external providers."
+echo "    Voice:     works now with browser/local providers; put provider keys in"
+echo "               ~/.config/sira/env (FISH_AUDIO_API_KEY, DEEPGRAM_API_KEY, …)"
+echo "               then: systemctl --user restart sira-api sira-worker"
 echo "    Note:      the mic and speech APIs need localhost or HTTPS in the browser."
 if [ -z "${FISH_AUDIO_API_KEY:-}" ] && ! command -v espeak-ng >/dev/null 2>&1 && ! command -v espeak >/dev/null 2>&1; then
   warn "no server voice installed — Linux browsers often have ZERO speech voices,"

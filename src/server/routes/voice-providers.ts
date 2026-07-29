@@ -125,32 +125,40 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
     }
   });
 
-  // ---- TTS relay: Fish Audio when keyed, else local espeak-ng ----
+  // ---- TTS relay: Fish Audio when keyed (falling back to local espeak on
+  // upstream failure, e.g. no API credit), else local espeak-ng ----
+  const synthLocal = (res: Parameters<typeof json>[0], text: string, viaFallback: boolean): void => {
+    // Local synthesis: honest, offline, Arabic-aware. WAV streamed as it is
+    // generated; the voice follows the text's language.
+    const bin = espeakBin()!;
+    const isArabic = /[؀-ۿ]/.test(text);
+    const child = spawn(bin, ['--stdin', '--stdout', '-v', isArabic ? 'ar' : 'en-us', '-s', '165']);
+    res.writeHead(200, {
+      'content-type': 'audio/wav',
+      'cache-control': 'no-store',
+      'x-sira-tts-provider': viaFallback ? 'espeak-fallback' : 'espeak',
+    });
+    child.stdout.pipe(res);
+    child.on('error', () => {
+      if (!res.headersSent) errorJson(res, 502, 'PROVIDER_ERROR', 'local TTS failed to start');
+      else res.end();
+    });
+    child.stdin.write(text.slice(0, 2000));
+    child.stdin.end();
+  };
+
   router.post('/api/voice/tts', async ({ res, query, body }) => {
     if (!requireSession(query, res)) return;
     const key = env.FISH_AUDIO_API_KEY;
     const text = (body as { text?: string } | undefined)?.text;
     if (!text || typeof text !== 'string') return errorJson(res, 400, 'BAD_REQUEST', 'text is required');
+    const localOk = deps.localTts ?? espeakBin() !== null;
     if (!key) {
-      const localOk = deps.localTts ?? espeakBin() !== null;
       if (!localOk) {
         return errorJson(res, 503, 'PROVIDER_NOT_CONFIGURED',
           'no server voice: set FISH_AUDIO_API_KEY, or install espeak-ng (sudo apt install espeak-ng); the client falls back to speechSynthesis');
       }
-      // Local synthesis: honest, offline, Arabic-aware. WAV streamed as it
-      // is generated; the voice follows the text's language.
-      const bin = espeakBin()!;
-      const isArabic = /[؀-ۿ]/.test(text);
-      const child = spawn(bin, ['--stdin', '--stdout', '-v', isArabic ? 'ar' : 'en-us', '-s', '165']);
-      res.writeHead(200, { 'content-type': 'audio/wav', 'cache-control': 'no-store' });
-      child.stdout.pipe(res);
-      child.on('error', () => {
-        if (!res.headersSent) errorJson(res, 502, 'PROVIDER_ERROR', 'local TTS failed to start');
-        else res.end();
-      });
-      child.stdin.write(text.slice(0, 2000));
-      child.stdin.end();
-      return;
+      return synthLocal(res, text, false);
     }
     try {
       const upstream = await fetchImpl('https://api.fish.audio/v1/tts', {
@@ -159,9 +167,20 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
         body: JSON.stringify({ text: text.slice(0, 2000), format: 'mp3', latency: 'balanced' }),
       });
       if (!upstream.ok || !upstream.body) {
-        return errorJson(res, 502, 'PROVIDER_ERROR', `Fish Audio ${upstream.status}: ${(await upstream.text()).slice(0, 300)}`);
+        const detail = `Fish Audio ${upstream.status}: ${(await upstream.text()).slice(0, 300)}`;
+        // A keyed-but-failing provider (e.g. out of API credit) must not
+        // silence the voice when a local one exists.
+        if (localOk) {
+          console.warn(`[sira] tts falling back to local voice — ${detail}`);
+          return synthLocal(res, text, true);
+        }
+        return errorJson(res, 502, 'PROVIDER_ERROR', detail);
       }
-      res.writeHead(200, { 'content-type': upstream.headers.get('content-type') ?? 'audio/mpeg', 'cache-control': 'no-store' });
+      res.writeHead(200, {
+        'content-type': upstream.headers.get('content-type') ?? 'audio/mpeg',
+        'cache-control': 'no-store',
+        'x-sira-tts-provider': 'fish-audio',
+      });
       const reader = upstream.body.getReader();
       for (;;) {
         const { done, value } = await reader.read();
@@ -170,8 +189,10 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
       }
       res.end();
     } catch (err) {
-      if (!res.headersSent) errorJson(res, 502, 'PROVIDER_ERROR', err instanceof Error ? err.message : String(err));
-      else res.end();
+      if (!res.headersSent) {
+        if (localOk) return synthLocal(res, text, true);
+        errorJson(res, 502, 'PROVIDER_ERROR', err instanceof Error ? err.message : String(err));
+      } else res.end();
     }
   });
 
