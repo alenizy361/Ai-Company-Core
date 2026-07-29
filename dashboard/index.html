@@ -952,6 +952,48 @@ function pushToBuf(a,html){
 /* ================= voice out ================= */
 let voiceOn=true,speakingNow=false;
 const ttsQ=[];
+
+/* The default ar-SA voice on iOS is the old compact synthesizer — that is the
+   robotic one. Devices usually carry a far better voice (enhanced/premium,
+   Siri, or Google on Android) but speechSynthesis never reaches for it on its
+   own, so score what is installed and pick the best rather than the first. */
+let VOICES=[],voicePick={};
+function loadVoices(){
+  try{VOICES=speechSynthesis.getVoices()||[];}catch(e){VOICES=[];}
+  voicePick={};
+}
+function scoreVoice(v){
+  const n=(v.name||"")+" "+(v.voiceURI||"");let s=0;
+  if(/premium|enhanced|neural|natural/i.test(n))s+=60;
+  if(/siri/i.test(n))s+=45;
+  if(/google/i.test(n))s+=35;
+  if(!v.localService)s+=10;      /* network voices are usually the good ones */
+  if(/compact|eloquence|espeak/i.test(n))s-=50;
+  return s;
+}
+function bestVoice(want){
+  if(want in voicePick)return voicePick[want];
+  const c=VOICES.filter(v=>(v.lang||"").toLowerCase().replace("_","-").startsWith(want));
+  c.sort((a,b)=>scoreVoice(b)-scoreVoice(a));
+  return(voicePick[want]=c[0]||null);
+}
+if("speechSynthesis" in window){
+  loadVoices();
+  /* iOS/Chrome populate the list asynchronously — re-read when it lands */
+  try{speechSynthesis.addEventListener("voiceschanged",loadVoices);}catch(e){}
+}
+/* Say the words, not the markup: unspoken asterisks and read-aloud URLs are a
+   large part of why synthesized replies sound machine-generated. */
+function speakable(t){
+  return String(t||"")
+    .replace(/```[\s\S]*?```/g," ")
+    .replace(/`([^`]+)`/g,"$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g,"$1")
+    .replace(/https?:\/\/\S+/g," ")
+    .replace(/\*\*([^*]+)\*\*/g,"$1")
+    .replace(/[*_#>|~]/g," ")
+    .replace(/\s{2,}/g," ").trim();
+}
 spkBtn.onclick=()=>{
   voiceOn=!voiceOn;spkBtn.classList.toggle("off",!voiceOn);
   if(!voiceOn){ttsQ.length=0;try{speechSynthesis.cancel();}catch(e){}}
@@ -979,7 +1021,8 @@ async function pumpTTS(){
   if(LIVE&&HEALTH.tts&&HEALTH.tts!=="browser"){
     try{
       const r=await authFetch("/api/tts",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({text:txt,lang:/[؀-ۿ]/.test(txt)?"ar":"en"}),signal:AbortSignal.timeout(20000)});
+        body:JSON.stringify({text:speakable(txt),lang:/[؀-ۿ]/.test(txt)?"ar":"en"}),
+        signal:AbortSignal.timeout(20000)});
       if(r.ok&&(r.headers.get("Content-Type")||"").includes("audio")){
         const url=URL.createObjectURL(await r.blob());
         const au=new Audio(url);
@@ -994,9 +1037,16 @@ async function pumpTTS(){
 }
 function browserSay(txt,done){
   if(!("speechSynthesis" in window)){done();return;}
-  const u=new SpeechSynthesisUtterance(txt);
-  u.lang=/[؀-ۿ]/.test(txt)?"ar-SA":"en-US";
-  u.rate=1.04;u.pitch=1;
+  const say=speakable(txt);
+  if(!say){done();return;}
+  const ar=/[؀-ۿ]/.test(say);
+  const u=new SpeechSynthesisUtterance(say);
+  u.lang=ar?"ar-SA":"en-US";
+  if(!VOICES.length)loadVoices();          /* first utterance often races the list */
+  const v=bestVoice(ar?"ar":"en");
+  if(v){u.voice=v;u.lang=v.lang;}
+  /* the compact Arabic voice clips its endings when pushed past ~1.0 */
+  u.rate=ar?0.97:1.02;u.pitch=1;
   u.onstart=speakPulseOn;
   u.onend=done;u.onerror=done;
   try{speechSynthesis.speak(u);}catch(e){done();}
