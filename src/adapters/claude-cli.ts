@@ -8,7 +8,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { AdapterError, type CompletionRequest, type CompletionResult, type ModelAdapter } from './types.ts';
+import { AdapterError, type CompletionRequest, type CompletionResult, type ModelAdapter, type StreamHandle } from './types.ts';
 
 const CLI_TIMEOUT_MS = Number(process.env.SIRA_CLI_TIMEOUT_MS ?? 300000);
 
@@ -33,6 +33,19 @@ export function resolveClaudeBin(env: Record<string, string | undefined> = proce
   const found = candidates.find((c): c is string => Boolean(c) && existsSync(c as string)) ?? 'claude';
   if (env === process.env) claudeBinCache = found;
   return found;
+}
+
+let streamJsonCache: boolean | null = null;
+
+/**
+ * CLI flag drift guard (same philosophy as the tool canary): stream-json
+ * partial output is used only when the installed CLI advertises it.
+ */
+export function cliSupportsStreamJson(): boolean {
+  if (streamJsonCache !== null) return streamJsonCache;
+  const res = spawnSync(resolveClaudeBin(), ['--help'], { timeout: 15000, encoding: 'utf8' });
+  streamJsonCache = !res.error && res.status === 0 && res.stdout.includes('--include-partial-messages');
+  return streamJsonCache;
 }
 
 export function probeCliAuth(): { ok: boolean; detail: string } {
@@ -127,6 +140,106 @@ export class ClaudeCliAdapter implements ModelAdapter {
         // The envelope has no single top-level model; pick the model that
         // produced the most output tokens (helpers like haiku do small
         // routing/summarization work in the same call).
+        let model = 'claude-cli';
+        let best = -1;
+        for (const [key, mu] of Object.entries(env.modelUsage ?? {})) {
+          if ((mu.outputTokens ?? 0) > best) {
+            best = mu.outputTokens ?? 0;
+            model = key;
+          }
+        }
+        resolve({
+          text: env.result,
+          usage: { input: env.usage?.input_tokens ?? 0, output: env.usage?.output_tokens ?? 0 },
+          model,
+        });
+      });
+
+      child.stdin.write(renderPrompt(req));
+      child.stdin.end();
+    });
+  }
+
+  /**
+   * Streams partial text via `--output-format stream-json`. Degrades to the
+   * non-streaming complete() when the installed CLI lacks the flags — the
+   * caller still gets the identical final result, just without deltas.
+   */
+  completeStream(req: CompletionRequest, stream: StreamHandle): Promise<CompletionResult> {
+    if (!cliSupportsStreamJson()) return this.complete(req);
+    const args = [
+      '-p', '--output-format', 'stream-json', '--include-partial-messages', '--verbose',
+      '--tools', '', '--system-prompt', req.system,
+    ];
+    if (process.env.SIRA_CLI_MODEL) args.push('--model', process.env.SIRA_CLI_MODEL);
+
+    return new Promise<CompletionResult>((resolve, reject) => {
+      const child = spawn(resolveClaudeBin(), args, {
+        cwd: this.scratchDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env },
+      });
+
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new AdapterError('claude-cli', `CLI call timed out after ${CLI_TIMEOUT_MS}ms`, true));
+      }, CLI_TIMEOUT_MS);
+
+      const onAbort = (): void => {
+        clearTimeout(timer);
+        child.kill('SIGKILL');
+        reject(new AdapterError('claude-cli', 'stream aborted by caller', false, true));
+      };
+      if (stream.signal) {
+        if (stream.signal.aborted) return onAbort();
+        stream.signal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      let buffer = '';
+      let stderr = '';
+      let envelope: CliEnvelope | null = null;
+      const handleLine = (line: string): void => {
+        if (!line.trim()) return;
+        let parsed: { type?: string; event?: { type?: string; delta?: { type?: string; text?: string } } } & CliEnvelope;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          return; // non-JSON verbose noise
+        }
+        if (parsed.type === 'stream_event' && parsed.event?.type === 'content_block_delta'
+            && parsed.event.delta?.type === 'text_delta' && typeof parsed.event.delta.text === 'string') {
+          stream.onDelta(parsed.event.delta.text);
+        } else if (parsed.type === 'result') {
+          envelope = parsed;
+        }
+      };
+      child.stdout.on('data', (d: Buffer) => {
+        buffer += d.toString();
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) handleLine(line);
+      });
+      child.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        reject(new AdapterError('claude-cli', `failed to spawn claude: ${err.message}`, false));
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        stream.signal?.removeEventListener('abort', onAbort);
+        if (stream.signal?.aborted) return; // already rejected via onAbort
+        handleLine(buffer);
+        if (code !== 0) {
+          return reject(new AdapterError('claude-cli', `claude exited ${code}: ${stderr.slice(0, 500)}`, true));
+        }
+        const env = envelope;
+        if (!env || env.is_error || env.subtype !== 'success' || typeof env.result !== 'string') {
+          return reject(new AdapterError(
+            'claude-cli',
+            `CLI stream reported failure (subtype=${env?.subtype}, api_error=${env?.api_error_status})`,
+            true,
+          ));
+        }
         let model = 'claude-cli';
         let best = -1;
         for (const [key, mu] of Object.entries(env.modelUsage ?? {})) {

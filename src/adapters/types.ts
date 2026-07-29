@@ -20,17 +20,31 @@ export interface CompletionResult {
   model: string;
 }
 
+export interface StreamHandle {
+  /** Called with each raw text fragment as the model produces it. */
+  onDelta: (text: string) => void;
+  /** Aborting rejects the call with an AdapterError whose aborted=true. */
+  signal?: AbortSignal;
+}
+
 export interface ModelAdapter {
   readonly name: 'mock' | 'claude-cli' | 'anthropic-api';
   complete(req: CompletionRequest): Promise<CompletionResult>;
+  /**
+   * Optional true streaming. Resolves with the same final result as
+   * complete(); callers must fall back to complete() when absent.
+   */
+  completeStream?(req: CompletionRequest, stream: StreamHandle): Promise<CompletionResult>;
 }
 
 export class AdapterError extends Error {
   readonly adapter: string;
   readonly retryable: boolean;
-  constructor(adapter: string, message: string, retryable: boolean) {
+  readonly aborted: boolean;
+  constructor(adapter: string, message: string, retryable: boolean, aborted = false) {
     super(message);
     this.adapter = adapter;
     this.retryable = retryable;
+    this.aborted = aborted;
   }
 }

@@ -13,10 +13,11 @@ import { emitEvent, audit } from '../../shared/events.ts';
 import { loadSystemConfig } from '../../shared/config.ts';
 import { hasFreshWorker } from '../../shared/derive.ts';
 import { extractFirstJsonObject } from '../../shared/extract-json.ts';
+import { SayStreamExtractor, SentenceBuffer } from '../../shared/say-stream.ts';
 import { getActiveCoreBundle } from '../../promptreg/registry.ts';
 import { createObjective } from '../../planning/plan-service.ts';
 import { assertTransitionTask, type TaskStatus } from '../../shared/statuses.ts';
-import type { ModelAdapter, ChatMessage } from '../../adapters/types.ts';
+import { AdapterError, type ModelAdapter, type ChatMessage } from '../../adapters/types.ts';
 import { recordTransition, verifyVoiceToken } from '../../voice/session.ts';
 
 const CONVERSE_CONTRACT = `
@@ -144,9 +145,49 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
     const adapter = getAdapter();
     const requestId = ulid('mr');
     const started = Date.now();
+
+    // Cancellation: the client tearing down the stream aborts the model call.
+    // Nothing is persisted as an assistant turn and no route executes — the
+    // client re-syncs from GET /api/conversations/:id and sees only the user
+    // turn (honest; there is no half-answer on record). res 'close' before
+    // writableEnded is the premature-disconnect signal.
+    const abort = new AbortController();
+    const onClose = (): void => {
+      if (!res.writableEnded) abort.abort();
+    };
+    res.on('close', onClose);
+
+    // Streaming path: delta events carry newly-stable decoded say text as it
+    // is generated; say events carry sentence-safe segments for TTS
+    // pipelining. Non-streaming adapters keep the buffered behavior.
+    const extractor = new SayStreamExtractor();
+    const sentences = new SentenceBuffer();
+    let streamed = false;
     let text: string;
     try {
-      const result = await adapter.complete({ system, messages, purpose: 'converse' });
+      let result;
+      if (adapter.completeStream) {
+        streamed = true;
+        result = await adapter.completeStream(
+          { system, messages, purpose: 'converse' },
+          {
+            signal: abort.signal,
+            onDelta: (delta) => {
+              const stable = extractor.push(delta);
+              if (!stable) return;
+              sse(res, 'delta', { text: stable });
+              for (const segment of sentences.push(stable)) sse(res, 'say', { text: segment });
+            },
+          },
+        );
+        const tail = extractor.finish();
+        if (tail) {
+          sse(res, 'delta', { text: tail });
+          for (const segment of sentences.push(tail)) sse(res, 'say', { text: segment });
+        }
+      } else {
+        result = await adapter.complete({ system, messages, purpose: 'converse' });
+      }
       text = result.text;
       db.run(
         `INSERT INTO model_requests (id, purpose, adapter, model, prompt_chars, response_text, parse_status, input_tokens, output_tokens, duration_ms, created_at)
@@ -155,17 +196,22 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
         text.slice(0, 50000), result.usage.input, result.usage.output, Date.now() - started, Date.now(),
       );
     } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
+      const aborted = err instanceof AdapterError && err.aborted;
+      const detail = aborted ? 'aborted by client' : err instanceof Error ? err.message : String(err);
       db.run(
         `INSERT INTO model_requests (id, purpose, adapter, model, prompt_chars, response_text, parse_status, error, duration_ms, created_at)
          VALUES (?, 'converse', ?, '', 0, '', 'adapter_error', ?, ?, ?)`,
         requestId, adapter.name, detail.slice(0, 1000), Date.now() - started, Date.now(),
       );
-      if (voiceSession) recordTransition(db, voiceSession, 'failed', 'server');
-      sse(res, 'error', { message: 'model unavailable', reference: requestId, detail: detail.slice(0, 200) });
-      sse(res, 'done', {});
+      if (voiceSession) recordTransition(db, voiceSession, aborted ? 'ready' : 'failed', 'server');
+      if (!aborted) {
+        sse(res, 'error', { message: 'model unavailable', reference: requestId, detail: detail.slice(0, 200) });
+        sse(res, 'done', {});
+      }
       res.end();
       return;
+    } finally {
+      res.off('close', onClose);
     }
 
     // Parse the converse contract; unparseable output degrades to a plain reply.
@@ -255,7 +301,19 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
     db.run('UPDATE conversations SET updated_at = ? WHERE id = ?', Date.now(), conversationId);
 
     sse(res, 'route', { route, ...routeResult });
-    for (const segment of sentenceSegments(say)) sse(res, 'say', { text: segment });
+    if (!streamed || extractor.emitted.trim() === '') {
+      // Non-streaming adapter, or the stream never surfaced a say value.
+      for (const segment of sentenceSegments(say)) sse(res, 'say', { text: segment });
+    } else {
+      const rest = sentences.flush();
+      if (rest) sse(res, 'say', { text: rest });
+      if (say.trim() !== extractor.emitted.trim()) {
+        // Route execution replaced the reply post-hoc (e.g. approval not
+        // found): speak the corrected line; done.say stays authoritative for
+        // the displayed text.
+        for (const segment of sentenceSegments(say)) sse(res, 'say', { text: segment });
+      }
+    }
     if (voiceSession) recordTransition(db, voiceSession, 'ready', 'server');
     sse(res, 'done', { assistantMessageId, say });
     res.end();

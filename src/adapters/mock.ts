@@ -9,7 +9,7 @@
 //     block of the form  MOCK_SCRIPT:[...json array of turn strings...]
 //     which lets integration tests drive a real worker process end-to-end
 //     (the script rides inside the task spec).
-import type { CompletionRequest, CompletionResult, ModelAdapter } from './types.ts';
+import { AdapterError, type CompletionRequest, type CompletionResult, type ModelAdapter, type StreamHandle } from './types.ts';
 
 const SCRIPT_RE = /MOCK_SCRIPT:(\[[\s\S]*?\])END_MOCK_SCRIPT/;
 
@@ -79,5 +79,20 @@ export class MockAdapter implements ModelAdapter {
       usage: { input: Math.round(input), output: Math.round(text.length / 4) },
       model: 'mock',
     });
+  }
+
+  /** Streams the same deterministic reply in small chunks (real code path for streaming tests). */
+  async completeStream(req: CompletionRequest, stream: StreamHandle): Promise<CompletionResult> {
+    const result = await this.complete(req);
+    const CHUNK = 16;
+    for (let i = 0; i < result.text.length; i += CHUNK) {
+      if (stream.signal?.aborted) {
+        throw new AdapterError('mock', 'stream aborted by caller', false, true);
+      }
+      stream.onDelta(result.text.slice(i, i + CHUNK));
+      // Yield between chunks so abort has a real window (tunable via MOCK_TURN_DELAY_MS handled in complete()).
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    return result;
   }
 }
