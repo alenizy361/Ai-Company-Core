@@ -102,8 +102,34 @@ export interface RolePolicy {
   approvalRequired: { tool: string; match?: string }[];
 }
 
+/**
+ * Self-development mode: the owner has dedicated this machine to SIRA and
+ * explicitly allows it to modify its own interface and code. Off by default;
+ * enabled with SIRA_SELF_DEV=1 (e.g. in ~/.config/sira/env).
+ */
+export function selfDevEnabled(): boolean {
+  return process.env.SIRA_SELF_DEV === '1';
+}
+
+/** In self-dev mode the objective workspace IS the repository (test-overridable). */
+export function selfDevRoot(): string {
+  return process.env.SIRA_SELF_DEV_ROOT ?? REPO_ROOT;
+}
+
 export function loadPermissions(): Record<string, RolePolicy> {
-  return readJson<{ roles: Record<string, RolePolicy> }>(join(REPO_ROOT, 'config', 'permissions.json')).roles;
+  const roles = readJson<{ roles: Record<string, RolePolicy> }>(join(REPO_ROOT, 'config', 'permissions.json')).roles;
+  if (!selfDevEnabled()) return roles;
+  const extra = readJson<{ roles: Record<string, RolePolicy> }>(join(REPO_ROOT, 'config', 'permissions.selfdev.json')).roles;
+  for (const [key, grant] of Object.entries(extra)) {
+    const base = roles[key];
+    if (!base) continue;
+    base.tools = [...new Set([...base.tools, ...grant.tools])];
+    base.paths.read = [...new Set([...base.paths.read, ...grant.paths.read])];
+    base.paths.write = [...new Set([...base.paths.write, ...grant.paths.write])];
+    base.commands = [...base.commands, ...grant.commands];
+    base.approvalRequired = [...base.approvalRequired, ...grant.approvalRequired];
+  }
+  return roles;
 }
 
 export interface VoiceConfig {

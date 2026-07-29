@@ -9,7 +9,7 @@ import { ulid } from '../shared/ids.ts';
 import { emitEvent } from '../shared/events.ts';
 import { notify } from '../shared/notify.ts';
 import { resolveAgentModel } from '../shared/model-tier.ts';
-import { loadPermissions, type Paths, type SystemConfig } from '../shared/config.ts';
+import { loadPermissions, selfDevEnabled, selfDevRoot, type Paths, type SystemConfig } from '../shared/config.ts';
 import { assertTransitionTask, type TaskStatus, type ExecutionStatus } from '../shared/statuses.ts';
 import { extractFirstJsonObject } from '../shared/extract-json.ts';
 import { validate, type SchemaNode } from '../shared/jsonschema.ts';
@@ -167,7 +167,8 @@ export async function runExecution(
   const startedAt = Date.now();
   const policies = loadPermissions();
   const policy = policies[task.agent_key];
-  const workspaceRoot = join(paths.workspaceDir, task.objective_id);
+  // Self-dev mode: the workspace IS the repository — SIRA works on itself.
+  const workspaceRoot = selfDevEnabled() ? selfDevRoot() : join(paths.workspaceDir, task.objective_id);
   mkdirSync(workspaceRoot, { recursive: true });
 
   const objective = db.get<{ id: string; title: string; description: string }>(

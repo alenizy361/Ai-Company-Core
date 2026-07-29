@@ -142,6 +142,21 @@ killed-worker honesty (zero active nodes, zero pulses), and a 9-viewport ×
 2-direction responsive matrix. Skips cleanly when no Chromium is present
 (`SIRA_CHROME_BIN` overrides the binary path); it is not part of `npm test`.
 
+## Self-development mode (dedicated machine)
+
+By default agents work inside a sandboxed per-objective workspace and can
+never touch SIRA's own code. On a machine dedicated to SIRA, the owner can
+grant it the ability to modify itself — interface and code — by adding
+`SIRA_SELF_DEV=1` to `~/.config/sira/env` and restarting the services. In
+this mode the objective workspace IS the repository, with per-role grants
+merged from `config/permissions.selfdev.json`: frontend/UX own `web/**`,
+backend owns `src/**` + `prompts/**`, QA owns `tests/**` — everything else
+stays denied by the same single enforcement point, every change still goes
+through a plan the owner confirms, verification commands (typecheck/tests)
+gate completion, and agents commit to git so every change is inspectable
+and revertible (`git log`, `git revert`). Ask SIRA "redesign your
+interface" and watch the frontend agent do it.
+
 ## Migrating from a pre-SIRA install
 
 Everything is automatic: `./scripts/install-sira.sh --services` stops and

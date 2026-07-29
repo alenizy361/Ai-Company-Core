@@ -1,0 +1,66 @@
+{
+  "comment": "Self-development grants, merged into permissions.json ONLY when SIRA_SELF_DEV=1. In this mode the objective workspace IS the SIRA repository: the owner has explicitly dedicated the machine to SIRA and allowed it to modify its own interface and code. Verification (typecheck/tests) and git history are the safety net; plan confirmation by the owner still gates every objective.",
+  "roles": {
+    "frontend": {
+      "tools": [],
+      "paths": { "read": ["**"], "write": ["web/**", "tests/ui/**"] },
+      "commands": [
+        { "bin": "node", "argsPrefix": ["--check"] },
+        { "bin": "npm", "argsPrefix": ["run", "typecheck"] },
+        { "bin": "npm", "argsPrefix": ["run", "test:unit"] },
+        { "bin": "git", "argsPrefix": ["status"] },
+        { "bin": "git", "argsPrefix": ["diff"] },
+        { "bin": "git", "argsPrefix": ["add"] },
+        { "bin": "git", "argsPrefix": ["commit"] },
+        { "bin": "git", "argsPrefix": ["log"] }
+      ],
+      "approvalRequired": []
+    },
+    "ux": {
+      "tools": ["write_file", "run_command"],
+      "paths": { "read": ["**"], "write": ["web/css/**", "web/js/i18n/**", "web/index.html", "web/manifest.json"] },
+      "commands": [
+        { "bin": "node", "argsPrefix": ["--check"] },
+        { "bin": "git", "argsPrefix": ["status"] },
+        { "bin": "git", "argsPrefix": ["diff"] },
+        { "bin": "git", "argsPrefix": ["add"] },
+        { "bin": "git", "argsPrefix": ["commit"] }
+      ],
+      "approvalRequired": []
+    },
+    "backend": {
+      "tools": [],
+      "paths": { "read": ["**"], "write": ["src/**", "tests/**", "scripts/**", "prompts/**"] },
+      "commands": [
+        { "bin": "node", "argsPrefix": ["--check"] },
+        { "bin": "npm", "argsPrefix": ["run", "typecheck"] },
+        { "bin": "npm", "argsPrefix": ["run", "test:unit"] },
+        { "bin": "npm", "argsPrefix": ["run", "test:integration"] },
+        { "bin": "git", "argsPrefix": ["status"] },
+        { "bin": "git", "argsPrefix": ["diff"] },
+        { "bin": "git", "argsPrefix": ["add"] },
+        { "bin": "git", "argsPrefix": ["commit"] },
+        { "bin": "git", "argsPrefix": ["log"] }
+      ],
+      "approvalRequired": []
+    },
+    "qa": {
+      "tools": [],
+      "paths": { "read": ["**"], "write": ["tests/**"] },
+      "commands": [
+        { "bin": "npm", "argsPrefix": ["run", "typecheck"] },
+        { "bin": "npm", "argsPrefix": ["run", "test:unit"] },
+        { "bin": "npm", "argsPrefix": ["run", "test:integration"] },
+        { "bin": "git", "argsPrefix": ["status"] },
+        { "bin": "git", "argsPrefix": ["diff"] }
+      ],
+      "approvalRequired": []
+    },
+    "ceo": {
+      "tools": [],
+      "paths": { "read": ["**"], "write": [] },
+      "commands": [{ "bin": "git", "argsPrefix": ["log"] }, { "bin": "git", "argsPrefix": ["status"] }],
+      "approvalRequired": []
+    }
+  }
+}

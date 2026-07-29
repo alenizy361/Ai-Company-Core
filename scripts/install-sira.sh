@@ -129,8 +129,16 @@ if [ "$WITH_SERVICES" = true ]; then
 # LIVEKIT_API_SECRET=
 # OWNER_TOKEN=                   # required only when exposing beyond localhost
 # PORT=4600
+# SIRA_SELF_DEV=1                # let SIRA modify its own code/interface (dedicated machine)
 ENVT
       chmod 600 "$ENV_FILE"
+    fi
+    # Self-development mode: agents commit their own changes; give the repo a
+    # local git identity so those commits succeed (agents run with HOME=repo).
+    if grep -q '^SIRA_SELF_DEV=1' "$ENV_FILE" 2>/dev/null; then
+      git config user.name >/dev/null 2>&1 || git config user.name "SIRA"
+      git config user.email >/dev/null 2>&1 || git config user.email "sira@localhost"
+      ok "self-development mode is ON — SIRA may modify its own code (git is the undo)"
     fi
     for svc in api worker; do
       ENTRY="src/server/index.ts"; DESC="SIRA OS API server"
