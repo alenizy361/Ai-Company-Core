@@ -98,6 +98,12 @@ if [ "$WITH_SERVICES" = true ]; then
   else
     UNIT_DIR="$HOME/.config/systemd/user"
     mkdir -p "$UNIT_DIR"
+    # Services get a minimal PATH; include the claude CLI's directory so the
+    # subscription adapter works under systemd, not just in your terminal.
+    SERVICE_PATH="/usr/local/bin:/usr/bin:/bin"
+    if command -v claude >/dev/null 2>&1; then
+      SERVICE_PATH="$(dirname "$(command -v claude)"):$SERVICE_PATH"
+    fi
     for svc in api worker; do
       ENTRY="src/server/index.ts"; DESC="RABIT OS API server"
       if [ "$svc" = worker ]; then ENTRY="src/worker/index.ts"; DESC="RABIT OS execution worker"; fi
@@ -112,6 +118,7 @@ ExecStart=$NODE_BIN --disable-warning=ExperimentalWarning $ENTRY
 Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
+Environment=PATH=$SERVICE_PATH
 # Environment=PORT=4600
 # Environment=OWNER_TOKEN=change-me-if-exposing-beyond-localhost
 
@@ -120,8 +127,11 @@ WantedBy=default.target
 UNIT
     done
     systemctl --user daemon-reload
-    systemctl --user enable --now rabit-api.service rabit-worker.service
-    ok "services rabit-api + rabit-worker enabled and started"
+    systemctl --user enable rabit-api.service rabit-worker.service
+    # restart (not just enable --now) so re-running the installer picks up a
+    # new `claude login`, updated code, or changed env vars
+    systemctl --user restart rabit-api.service rabit-worker.service
+    ok "services rabit-api + rabit-worker enabled and (re)started"
     if command -v loginctl >/dev/null 2>&1; then
       warn "so services keep running after you log out:  sudo loginctl enable-linger $USER"
     fi

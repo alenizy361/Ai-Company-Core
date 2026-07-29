@@ -5,7 +5,7 @@
 // falling back is never silent.
 import { spawnSync } from 'node:child_process';
 import { MockAdapter } from './mock.ts';
-import { ClaudeCliAdapter, probeCliAuth } from './claude-cli.ts';
+import { ClaudeCliAdapter, probeCliAuth, resolveClaudeBin } from './claude-cli.ts';
 import { AnthropicApiAdapter } from './anthropic-api.ts';
 import type { ModelAdapter } from './types.ts';
 
@@ -19,9 +19,9 @@ let cliProbeCache: { ok: boolean; detail: string } | null = null;
 
 export function cliAvailable(): { ok: boolean; detail: string } {
   if (cliProbeCache) return cliProbeCache;
-  const which = spawnSync('claude', ['--version'], { timeout: 10000, encoding: 'utf8' });
+  const which = spawnSync(resolveClaudeBin(), ['--version'], { timeout: 10000, encoding: 'utf8' });
   if (which.error || which.status !== 0) {
-    cliProbeCache = { ok: false, detail: 'claude CLI not found on PATH' };
+    cliProbeCache = { ok: false, detail: 'claude CLI not found (PATH + standard install locations checked)' };
     return cliProbeCache;
   }
   cliProbeCache = probeCliAuth();

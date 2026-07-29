@@ -6,14 +6,37 @@
 // startup canary (runCliCanary) asserts that a tool-bait prompt produces no
 // side effects; if the canary fails the adapter refuses to run.
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { AdapterError, type CompletionRequest, type CompletionResult, type ModelAdapter } from './types.ts';
 
 const CLI_TIMEOUT_MS = Number(process.env.RABIT_CLI_TIMEOUT_MS ?? 300000);
 
+let claudeBinCache: string | null = null;
+
+/**
+ * Resolve the claude CLI binary. Services (systemd units, launchd) run with a
+ * minimal PATH that usually misses user-local install locations, so after PATH
+ * we probe the standard install paths. Override with RABIT_CLAUDE_BIN.
+ */
+export function resolveClaudeBin(env: Record<string, string | undefined> = process.env): string {
+  if (claudeBinCache && env === process.env) return claudeBinCache;
+  const home = env.HOME ?? '';
+  const candidates = [
+    env.RABIT_CLAUDE_BIN,
+    ...(env.PATH ?? '').split(':').filter(Boolean).map((dir) => join(dir, 'claude')),
+    home && join(home, '.local', 'bin', 'claude'),
+    home && join(home, '.claude', 'local', 'claude'),
+    '/usr/local/bin/claude',
+    '/opt/homebrew/bin/claude',
+  ];
+  const found = candidates.find((c): c is string => Boolean(c) && existsSync(c as string)) ?? 'claude';
+  if (env === process.env) claudeBinCache = found;
+  return found;
+}
+
 export function probeCliAuth(): { ok: boolean; detail: string } {
-  const res = spawnSync('claude', ['auth', 'status'], { timeout: 15000, encoding: 'utf8' });
+  const res = spawnSync(resolveClaudeBin(), ['auth', 'status'], { timeout: 15000, encoding: 'utf8' });
   if (res.error) return { ok: false, detail: `claude CLI failed to run: ${res.error.message}` };
   try {
     const parsed = JSON.parse(res.stdout.trim());
@@ -60,7 +83,7 @@ export class ClaudeCliAdapter implements ModelAdapter {
     if (process.env.RABIT_CLI_MODEL) args.push('--model', process.env.RABIT_CLI_MODEL);
 
     return new Promise<CompletionResult>((resolve, reject) => {
-      const child = spawn('claude', args, {
+      const child = spawn(resolveClaudeBin(), args, {
         cwd: this.scratchDir,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env },
