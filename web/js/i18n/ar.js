@@ -193,6 +193,7 @@ export default {
   'announce.approvalRequired': 'موافقة مطلوبة',
   'announce.executionFailed': 'فشلت مهمة',
   'announce.objectiveCompleted': 'اكتمل الهدف',
+  'announce.objectiveCancelled': 'أُلغي الهدف',
 
   'exec.count': '{n} مهام قيد التنفيذ',
   'exec.count.one': 'مهمة واحدة قيد التنفيذ',

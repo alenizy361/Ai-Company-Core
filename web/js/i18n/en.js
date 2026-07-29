@@ -206,6 +206,7 @@ export default {
   'announce.approvalRequired': 'Approval required',
   'announce.executionFailed': 'A task failed',
   'announce.objectiveCompleted': 'Objective completed',
+  'announce.objectiveCancelled': 'Objective cancelled',
 
   // Misc.
   'exec.count': '{n} tasks executing',

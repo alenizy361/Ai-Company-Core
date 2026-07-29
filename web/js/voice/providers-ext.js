@@ -101,6 +101,7 @@ export class FishAudioTTS {
     this.available = true;
     this.audio = null;
     this.currentText = '';
+    this.synthesizingText = '';
     this.onRemainder = null;
     this.audioCtx = null;
     this.analyser = null;
@@ -131,6 +132,7 @@ export class FishAudioTTS {
       return;
     }
     this.busy = true;
+    this.synthesizingText = text;
     this.store.transition('generating_speech', 'tts');
     const session = this.store.session;
     try {
@@ -157,6 +159,7 @@ export class FishAudioTTS {
       audio.onplaying = () => {
         if (gen !== this.gen) return;
         this.playing = true;
+        this.synthesizingText = '';
         this.store.transition('speaking', 'playback');
       };
       audio.onended = () => {
@@ -201,13 +204,21 @@ export class FishAudioTTS {
       this.audio = null;
     }
     const pending = this.queue.splice(0);
+    // Whatever was mid-synthesis is also unspoken — never drop it silently.
+    const inFlight = wasPlaying ? remainder : (this.synthesizingText ?? '');
+    this.synthesizingText = '';
     this.playing = false;
     this.busy = false;
+    const unspoken = [inFlight, ...pending].filter(Boolean).join(' ');
     if (wasPlaying) {
       this.store.transition('interrupted', 'playback');
-      const unspoken = [remainder, ...pending].filter(Boolean).join(' ');
-      if (unspoken && this.onRemainder) this.onRemainder(unspoken);
+    } else if (['generating_speech', 'speaking'].includes(this.store.state)) {
+      // Interrupted during synthesis: the killed chain will never reach a
+      // drain, so the state machine must be released here or the interface
+      // would show "preparing speech" forever.
+      this.store.transition('ready', 'playback');
     }
+    if (unspoken && this.onRemainder) this.onRemainder(unspoken);
     return { wasPlaying, stopMs: performance.now() - startedAt };
   }
 }

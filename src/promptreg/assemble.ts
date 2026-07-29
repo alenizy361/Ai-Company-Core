@@ -105,7 +105,9 @@ export function assemblePrompt(db: Db, input: AssembleInput): AssembledPrompt {
   sections.push(
     `## Expected artifacts (you must create each via write_artifact or write_file)\n` +
       (input.task.expected_artifacts.length
-        ? input.task.expected_artifacts.map((a) => `- ${a}`).join('\n')
+        ? input.task.expected_artifacts.map((a) => `- ${a}`).join('\n') +
+          `\nWhen you claim completion, list EVERY expected artifact you produced in the "artifacts" array. ` +
+          `Each must hold real, substantive content — near-empty or placeholder artifacts fail backend verification.`
         : '- (none declared — your summary is the deliverable)'),
   );
 

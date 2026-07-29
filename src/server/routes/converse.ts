@@ -304,11 +304,20 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
         }
       } else if (route === 'approve') {
         const approvalId = String(routePayload.approval_id ?? '');
-        const decision = routePayload.decision === 'rejected' ? 'rejected' : 'approved';
+        // The decision must be EXPLICIT: defaulting anything unexpected to
+        // 'approved' would let model slop authorize real actions.
+        const decision = routePayload.decision === 'rejected' ? 'rejected'
+          : routePayload.decision === 'approved' ? 'approved' : null;
         const approval = db.get<{ id: string; status: string; execution_id: string | null; task_id: string | null; summary: string }>(
           'SELECT id, status, execution_id, task_id, summary FROM approvals WHERE id = ?', approvalId,
         );
-        if (approval && approval.status === 'pending') {
+        if (!decision) {
+          routeResult = { error: 'decision must be exactly "approved" or "rejected"' };
+          say = correctedLang === 'ar'
+            ? 'لم أفهم القرار — قل وافق أو ارفض بوضوح.'
+            : 'I did not catch the decision — say approve or reject explicitly.';
+          sayReplaced = true;
+        } else if (approval && approval.status === 'pending') {
           db.transaction(() => {
             db.run(`UPDATE approvals SET status = ?, decided_at = ?, decided_by = 'owner', decided_via = ? WHERE id = ?`,
               decision, Date.now(), modality === 'voice' ? 'voice' : 'ui', approval.id);
@@ -321,18 +330,29 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
           });
           routeResult = { approvalId, decision };
         } else {
-          // Models often say "approve" for a proposed PLAN; when no tool
-          // approval matches but exactly one plan awaits confirmation, the
-          // owner's intent is unambiguous — act on it instead of failing.
-          const proposed = db.all<{ id: string }>(`SELECT id FROM plans WHERE status = 'proposed'`);
-          if (proposed.length === 1) {
+          // Models often say "approve" for a proposed PLAN. Fall through to
+          // the plan ONLY when the intent is genuinely unambiguous: zero
+          // pending tool approvals (nothing else the owner could mean) and
+          // exactly one plan awaiting confirmation — and say what actually
+          // happened, since the model's line described a tool approval.
+          const pendingApprovals = db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM approvals WHERE status = 'pending'`)?.n ?? 0;
+          const proposed = db.all<{ id: string; objective_id: string }>(`SELECT id, objective_id FROM plans WHERE status = 'proposed'`);
+          if (pendingApprovals === 0 && proposed.length === 1) {
+            const objTitle = db.get<{ title: string }>('SELECT title FROM objectives WHERE id = ?', proposed[0].objective_id)?.title ?? '';
             if (decision === 'approved') {
               const confirmed = confirmPlan(db, proposed[0].id, 'owner', modality === 'voice' ? 'voice' : 'api');
               routeResult = { planId: proposed[0].id, taskIds: confirmed.taskIds, viaApproveFallback: true };
+              say = correctedLang === 'ar'
+                ? `اعتمدتُ الخطة وبدأ الفريق العمل على: ${objTitle}`
+                : `Plan confirmed — the team is starting on: ${objTitle}`;
             } else {
               rejectPlan(db, proposed[0].id, 'owner', 'rejected by owner (voice)');
               routeResult = { planId: proposed[0].id, rejected: true, viaApproveFallback: true };
+              say = correctedLang === 'ar'
+                ? `رفضتُ الخطة المقترحة لهدف: ${objTitle}`
+                : `Rejected the proposed plan for: ${objTitle}`;
             }
+            sayReplaced = true;
           } else {
             routeResult = { error: 'approval not found or not pending' };
             say = correctedLang === 'ar'
@@ -348,18 +368,26 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
         if (task) {
           try {
             assertTransitionTask(task.status, 'cancelled');
-            db.transaction(() => {
-              db.run(`UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE id = ?`, Date.now(), task.id);
+            // Conditional on the validated status: the worker can commit a
+            // different terminal state between our read and this write.
+            const didCancel = db.transaction(() => {
+              const changed = db.run(`UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE id = ? AND status = ?`, Date.now(), task.id, task.status);
+              if (Number(changed.changes) === 0) return false;
               emitEvent(db, {
                 type: 'task.status', orgId: cfg.orgId, taskId: task.id, agentKey: task.agent_key,
                 payload: { from: task.status, to: 'cancelled', source: modality === 'voice' ? 'owner_voice' : 'owner' },
               });
               audit(db, cfg.orgId, 'owner', 'task.cancel', 'task', task.id, { via: modality });
+              return true;
             });
-            // Dependents can never run and the objective may now be terminal.
-            cascadeDependencyFailure(db, cfg, task.id);
-            maybeCompleteObjective(db, cfg, task.objective_id);
-            routeResult = { taskId, cancelled: true };
+            if (didCancel) {
+              // Dependents can never run and the objective may now be terminal.
+              cascadeDependencyFailure(db, cfg, task.id);
+              maybeCompleteObjective(db, cfg, task.objective_id);
+              routeResult = { taskId, cancelled: true };
+            } else {
+              routeResult = { error: 'task changed state concurrently; not cancelled' };
+            }
           } catch {
             routeResult = { error: `task is ${task.status}; cannot cancel` };
           }

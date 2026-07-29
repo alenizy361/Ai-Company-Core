@@ -55,7 +55,10 @@ const COMPLETE_ACTION_SCHEMA: SchemaNode = {
     unresolved: { type: 'array', items: { type: 'string' } },
     next_action: { type: 'string' },
   },
-  required: ['action', 'summary'],
+  // artifacts is required: the verifier cross-checks the claim's artifact
+  // list against the plan's expected artifacts, so the contract must demand
+  // it (an optional field the verifier then fails on would be a trap).
+  required: ['action', 'summary', 'artifacts'],
   additionalProperties: false,
 };
 
@@ -191,6 +194,11 @@ export async function runExecution(
   const failTask = (reason: string, blockers: string[], requeue: boolean): ExecutionOutcome => {
     const now = Date.now();
     const canRetry = requeue && task.attempt_count < task.max_attempts;
+    // Only the worker that actually COMMITS the terminal 'failed' transition
+    // may cascade to dependents / finalize the objective. A branch whose
+    // claim was lost (sweeper requeued it, another worker took over) must
+    // not cancel dependents of a task that is really queued/running/completed.
+    let terminalCommitted = false;
     db.transaction(() => {
       db.run(
         `UPDATE executions SET status = 'failed', failure_reason = ?, finished_at = ? WHERE id = ?`,
@@ -208,6 +216,7 @@ export async function runExecution(
             `UPDATE tasks SET status = 'failed', claimed_by = NULL, lease_expires_at = NULL, blocker = ?, updated_at = ? WHERE id = ?`,
             (blockers[0] ?? reason).slice(0, 500), now, task.id,
           );
+          terminalCommitted = true;
         }
         emitEvent(db, {
           type: 'task.status', orgId: cfg.orgId, taskId: task.id, agentKey: task.agent_key,
@@ -218,7 +227,7 @@ export async function runExecution(
         type: 'execution.finished', orgId: cfg.orgId, executionId, taskId: task.id, agentKey: task.agent_key,
         payload: { status: 'failed', reason: reason.slice(0, 300), willRetry: canRetry },
       });
-      if (!canRetry) {
+      if (terminalCommitted) {
         notify(db, cfg.orgId, {
           kind: 'task_failed', priority: 'high',
           title: `Task failed: ${task.title}`, body: reason.slice(0, 500),
@@ -226,7 +235,7 @@ export async function runExecution(
         });
       }
     });
-    if (!canRetry) {
+    if (terminalCommitted) {
       // Terminal failure: dependents can never run — cancel them honestly so
       // the objective finalizes instead of hanging 'in_progress' forever.
       cascadeDependencyFailure(db, cfg, task.id);

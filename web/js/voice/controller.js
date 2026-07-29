@@ -60,9 +60,13 @@ export class VoiceController {
     this.store.subscribe((state, from) => {
       ui.onStateChange?.(state, from);
       // Continuous mode: after real playback drains back to ready, re-listen.
-      if (this.continuous && state === 'ready' && from === 'speaking' && !this.capture.muted) {
+      // NEVER while a reply is still generating or a turn is in flight — the
+      // TTS queue drains between sentences too, and re-entering talk() there
+      // would hard-stop the in-flight generation (barge-in semantics).
+      if (this.continuous && state === 'ready' && from === 'speaking' && !this.capture.muted
+          && !this.generating && !this.busy) {
         setTimeout(() => {
-          if (this.store.state === 'ready') void this.talk();
+          if (this.store.state === 'ready' && !this.generating && !this.busy) void this.talk();
         }, 150);
       }
     });
@@ -199,9 +203,20 @@ export class VoiceController {
       }
       this.ui.onTranscript?.(text, true);
       await this.sendText(text, 'voice', t0);
+      // If TTS drained BEFORE generation finished, the speaking->ready edge
+      // fired while generating was true and the continuous restart was
+      // (correctly) suppressed — re-arm it now that the turn is over.
+      this._scheduleContinuousRestart();
     } finally {
       this.busy = false;
     }
+  }
+
+  _scheduleContinuousRestart() {
+    if (!this.continuous || this.capture.muted) return;
+    setTimeout(() => {
+      if (this.store.state === 'ready' && !this.generating && !this.busy) void this.talk();
+    }, 200);
   }
 
   /**
@@ -229,10 +244,12 @@ export class VoiceController {
     this.learnSpeechLang(text);
     // Single-flight: a new turn supersedes any stream still generating —
     // two concurrent streams would interleave text and speak over each other,
-    // and Stop would only reach the newer one.
+    // and Stop would only reach the newer one. The superseded turn's TTS is
+    // silenced UNCONDITIONALLY (a typed superseder must not leave the old
+    // voice reply's queued clips playing under the new answer).
     if (this.generating) {
       this.abortCtrl?.abort();
-      if (modality === 'voice') this.tts.interrupt();
+      this.tts.interrupt();
     }
     const epoch = ++this.turnEpoch;
     // activeTurn tracks which turn OWNS the generating flag: a hard stop

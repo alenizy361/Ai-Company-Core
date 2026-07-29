@@ -7,6 +7,7 @@ export class SpeechSynthesisTTS {
     this.store = store;
     this.queue = [];
     this.playing = false;
+    this.pending = false;
     this.currentText = '';
     this.spokenChars = 0;
     this.onRemainder = null;
@@ -28,9 +29,13 @@ export class SpeechSynthesisTTS {
     return 'speechSynthesis' in window && speechSynthesis.getVoices().length > 0;
   }
 
-  /** Anything queued or sounding — the barge-in gesture keys off this. */
+  /**
+   * Anything queued, committed to the engine, or sounding — the barge-in
+   * gesture keys off this. `pending` covers the speak()->onstart synthesis
+   * window, where the segment has left the queue but is not yet audible.
+   */
   get busy() {
-    return this.playing || this.queue.length > 0;
+    return this.playing || this.pending || this.queue.length > 0;
   }
 
   /**
@@ -56,9 +61,11 @@ export class SpeechSynthesisTTS {
     const text = this.queue.shift();
     if (text === undefined) {
       this.playing = false;
+      this.pending = false;
       if (['speaking', 'generating_speech'].includes(this.store.state)) this.store.transition('ready', 'playback');
       return;
     }
+    this.pending = true;
     this.store.transition('generating_speech', 'tts');
     const utterance = new SpeechSynthesisUtterance(text);
     // Dominant script decides the voice — a single Arabic word inside an
@@ -76,6 +83,7 @@ export class SpeechSynthesisTTS {
     this.spokenChars = 0;
     utterance.onstart = () => {
       this.playing = true;
+      this.pending = false;
       this._boundaryAt = performance.now();
       this.store.transition('speaking', 'playback');
     };
@@ -88,10 +96,12 @@ export class SpeechSynthesisTTS {
     };
     utterance.onend = () => {
       this.playing = false;
+      this.pending = false;
       this._next();
     };
     utterance.onerror = () => {
       this.playing = false;
+      this.pending = false;
       this.store.transition('failed', 'tts');
     };
     speechSynthesis.speak(utterance);
@@ -100,16 +110,24 @@ export class SpeechSynthesisTTS {
   /** Barge-in: stop immediately, preserve the unspoken remainder. */
   interrupt() {
     const startedAt = performance.now();
-    const remainder = this.playing ? this.currentText.slice(this.spokenChars) : '';
+    const wasPlaying = this.playing;
+    // Unspoken content includes a segment committed to the engine but not
+    // yet audible (pending) — dropping it silently would lose transcript truth.
+    const remainder = wasPlaying ? this.currentText.slice(this.spokenChars) : this.pending ? this.currentText : '';
     const pendingQueue = this.queue.splice(0);
     try { speechSynthesis.cancel(); } catch { /* nothing playing */ }
-    const wasPlaying = this.playing;
+    const wasPending = this.pending;
     this.playing = false;
+    this.pending = false;
     if (wasPlaying) {
       this.store.transition('interrupted', 'playback');
-      const unspoken = [remainder, ...pendingQueue].filter(Boolean).join(' ');
-      if (unspoken && this.onRemainder) this.onRemainder(unspoken);
+    } else if (wasPending && ['generating_speech', 'speaking'].includes(this.store.state)) {
+      // Killed during synthesis: nothing will drain the queue anymore, so
+      // release the state machine here.
+      this.store.transition('ready', 'playback');
     }
+    const unspoken = [remainder, ...pendingQueue].filter(Boolean).join(' ');
+    if (unspoken && this.onRemainder) this.onRemainder(unspoken);
     return { wasPlaying, stopMs: performance.now() - startedAt };
   }
 }

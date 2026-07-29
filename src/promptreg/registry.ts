@@ -105,27 +105,39 @@ export function seedPromptsFromDisk(db: Db, promptsDir: string): SeedResult[] {
  * version; this only activates the shipped baseline when nothing is active.
  */
 export function activateBaselineAgentPrompts(db: Db, orgId: string): string[] {
+  // Strictly virgin agents only: no active version AND no eval run ever
+  // recorded. An agent that has entered the eval flow (even failing the
+  // gate) stays gated — auto-activating there would bypass the eval harness
+  // for edited prompt files. This is a first-boot bootstrap, not a backdoor.
   const rows = db.all<{ key: string; version_id: string }>(
     `SELECT a.key, pv.id AS version_id FROM agents a
      JOIN prompts p ON p.scope = 'agent' AND p.key = a.key
      JOIN prompt_versions pv ON pv.prompt_id = p.id
      WHERE a.active_prompt_version_id IS NULL
+       AND NOT EXISTS (SELECT 1 FROM eval_runs er WHERE er.agent_key = a.key)
        AND pv.version = (SELECT MAX(version) FROM prompt_versions WHERE prompt_id = p.id)`,
   );
   const now = Date.now();
   const activated: string[] = [];
   for (const row of rows) {
-    db.transaction(() => {
+    const won = db.transaction(() => {
+      // Guarded for the server/worker boot race: only the process that wins
+      // the conditional UPDATE emits the event.
+      const changed = db.run(
+        `UPDATE agents SET lifecycle = 'active', active_prompt_version_id = ?, updated_at = ?
+         WHERE key = ? AND active_prompt_version_id IS NULL`,
+        row.version_id, now, row.key,
+      );
+      if (Number(changed.changes) === 0) return false;
       db.run(`UPDATE prompt_versions SET status = 'active', updated_at = ? WHERE id = ?`, now, row.version_id);
-      db.run(`UPDATE agents SET lifecycle = 'active', active_prompt_version_id = ?, updated_at = ? WHERE key = ?`,
-        row.version_id, now, row.key);
       emitEvent(db, {
         type: 'prompt.promoted', orgId, agentKey: row.key,
         payload: { versionId: row.version_id, baseline: true },
       });
       audit(db, orgId, 'boot', 'prompt.activate_baseline', 'prompt_version', row.version_id, { agentKey: row.key });
+      return true;
     });
-    activated.push(row.key);
+    if (won) activated.push(row.key);
   }
   return activated;
 }

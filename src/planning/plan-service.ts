@@ -113,12 +113,20 @@ export interface PlanningOutcome {
  * Terminal planning failure: the objective must NEVER stay claimed in
  * 'planning' (a live worker's heartbeat would renew that lease forever) and
  * the owner must actually hear about it — event + notification, not a log line.
+ * Fenced on claimed_by: a worker whose lease lapsed (sweeper reopened the
+ * objective, another worker took over) must not stomp 'failed' over live work.
  */
-function failObjectivePlanning(db: Db, cfg: SystemConfig, objective: { id: string; title: string }, reason: string): void {
+function failObjectivePlanning(
+  db: Db, cfg: SystemConfig, objective: { id: string; title: string }, reason: string, workerId: string | null,
+): void {
   const now = Date.now();
   db.transaction(() => {
-    db.run(`UPDATE objectives SET status = 'failed', claimed_by = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ?`,
-      now, objective.id);
+    const changed = db.run(
+      `UPDATE objectives SET status = 'failed', claimed_by = NULL, lease_expires_at = NULL, updated_at = ?
+       WHERE id = ? AND status = 'planning'${workerId ? ' AND claimed_by = ?' : ''}`,
+      ...(workerId ? [now, objective.id, workerId] : [now, objective.id]),
+    );
+    if (Number(changed.changes) === 0) return; // claim lost — the current owner decides this objective's fate
     emitEvent(db, {
       type: 'objective.finished', orgId: cfg.orgId,
       payload: { objectiveId: objective.id, status: 'failed', reason: reason.slice(0, 300) },
@@ -132,10 +140,13 @@ function failObjectivePlanning(db: Db, cfg: SystemConfig, objective: { id: strin
   });
 }
 
-/** Release a planning claim so the objective can be re-claimed and retried. */
-function releasePlanningClaim(db: Db, objectiveId: string): void {
-  db.run(`UPDATE objectives SET status = 'open', claimed_by = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ? AND status = 'planning'`,
-    Date.now(), objectiveId);
+/** Release a planning claim so the objective can be re-claimed and retried (fenced on claimed_by). */
+function releasePlanningClaim(db: Db, objectiveId: string, workerId: string | null): void {
+  db.run(
+    `UPDATE objectives SET status = 'open', claimed_by = NULL, lease_expires_at = NULL, updated_at = ?
+     WHERE id = ? AND status = 'planning'${workerId ? ' AND claimed_by = ?' : ''}`,
+    ...(workerId ? [Date.now(), objectiveId, workerId] : [Date.now(), objectiveId]),
+  );
 }
 
 /** Runs the full planning attempt loop for one objective (called by the worker). */
@@ -143,17 +154,18 @@ export async function runPlanningForObjective(
   db: Db,
   adapter: ModelAdapter,
   objectiveId: string,
+  workerId: string | null = null,
 ): Promise<PlanningOutcome> {
   const cfg = loadSystemConfig();
   const objective = db.get<ObjectiveRow>('SELECT * FROM objectives WHERE id = ?', objectiveId);
   if (!objective) return { status: 'error', detail: 'objective missing' };
   try {
-    return await runPlanningAttempts(db, adapter, cfg, objective);
+    return await runPlanningAttempts(db, adapter, cfg, objective, workerId);
   } catch (err) {
     // Any unexpected throw (missing prompt version, DB error, ...) must not
     // leave the objective deadlocked in 'planning'. Fail it honestly.
     const detail = err instanceof Error ? err.message : String(err);
-    failObjectivePlanning(db, cfg, objective, `planning crashed: ${detail}`);
+    failObjectivePlanning(db, cfg, objective, `planning crashed: ${detail}`, workerId);
     return { status: 'error', detail };
   }
 }
@@ -163,6 +175,7 @@ async function runPlanningAttempts(
   adapter: ModelAdapter,
   cfg: SystemConfig,
   objective: ObjectiveRow,
+  workerId: string | null,
 ): Promise<PlanningOutcome> {
   const objectiveId = objective.id;
   const agents = new Map(
@@ -211,9 +224,9 @@ async function runPlanningAttempts(
       const attemptsUsed = (db.get<{ n: number }>('SELECT replan_count AS n FROM objectives WHERE id = ?', objectiveId)?.n ?? 0) + 1;
       db.run('UPDATE objectives SET replan_count = replan_count + 1, updated_at = ? WHERE id = ?', Date.now(), objectiveId);
       if (retryable && attemptsUsed <= cfg.maxReplans) {
-        releasePlanningClaim(db, objectiveId);
+        releasePlanningClaim(db, objectiveId, workerId);
       } else {
-        failObjectivePlanning(db, cfg, objective, `planning model call failed after ${attemptsUsed} attempt(s): ${detail}`);
+        failObjectivePlanning(db, cfg, objective, `planning model call failed after ${attemptsUsed} attempt(s): ${detail}`, workerId);
       }
       return { status: 'error', detail };
     }
@@ -225,12 +238,16 @@ async function runPlanningAttempts(
       minSpecChars: 80,
     });
 
-    const version = (db.get<{ m: number | null }>('SELECT MAX(version) AS m FROM plans WHERE objective_id = ?', objectiveId)?.m ?? 0) + 1;
     const planId = ulid('pln');
     const now = Date.now();
+    // The version is computed INSIDE each insert transaction — two planners
+    // racing on the same objective must not collide on UNIQUE(objective_id, version).
+    const nextVersion = (): number =>
+      (db.get<{ m: number | null }>('SELECT MAX(version) AS m FROM plans WHERE objective_id = ?', objectiveId)?.m ?? 0) + 1;
 
     if (!parsed.ok) {
       db.transaction(() => {
+        const version = nextVersion();
         db.run(
           `INSERT INTO plans (id, objective_id, version, model_request_id, raw_json, reply, status, validation_errors, created_at)
            VALUES (?, ?, ?, ?, ?, '', 'rejected', ?, ?)`,
@@ -252,6 +269,7 @@ async function runPlanningAttempts(
     }
 
     db.transaction(() => {
+      const version = nextVersion();
       db.run(
         `INSERT INTO plans (id, objective_id, version, model_request_id, raw_json, reply, status, created_at)
          VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?)`,
@@ -278,6 +296,7 @@ async function runPlanningAttempts(
     db, cfg, objective,
     `planning exhausted after ${cfg.maxReplans + 1} attempts; last validator errors: ${
       (lastErrors ?? []).map((e) => `${e.code}: ${e.detail}`).join('; ').slice(0, 400) || 'none recorded'}`,
+    workerId,
   );
   return { status: 'rejected_exhausted', errors: lastErrors ?? [] };
 }

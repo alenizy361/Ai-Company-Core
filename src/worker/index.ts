@@ -140,7 +140,7 @@ async function main(): Promise<void> {
           console.log(`[worker] planning objective ${objective.id}: ${objective.title}`);
           activePlanningIds.add(objective.id);
           launch(async () => {
-            const outcome = await runPlanningForObjective(db, adapter, objective.id);
+            const outcome = await runPlanningForObjective(db, adapter, objective.id, workerId);
             console.log(`[worker] planning ${objective.id} -> ${outcome.status}`);
           }, () => activePlanningIds.delete(objective.id));
         } else {

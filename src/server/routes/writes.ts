@@ -76,14 +76,20 @@ export function registerWriteRoutes(router: Router, db: Db): void {
       return errorJson(res, 409, 'ILLEGAL_TRANSITION', err instanceof Error ? err.message : String(err));
     }
     const now = Date.now();
-    db.transaction(() => {
-      db.run(`UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE id = ?`, now, task.id);
+    // TOCTOU guard: the worker may commit a different status (e.g. completed)
+    // between our read and this transaction — the UPDATE is conditional on
+    // the status we validated, and 0 rows changed means hands off.
+    const cancelled = db.transaction(() => {
+      const changed = db.run(`UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE id = ? AND status = ?`, now, task.id, task.status);
+      if (Number(changed.changes) === 0) return false;
       emitEvent(db, {
         type: 'task.status', orgId: cfg.orgId, taskId: task.id, agentKey: task.agent_key,
         payload: { from: task.status, to: 'cancelled', source: 'owner' },
       });
       audit(db, cfg.orgId, 'owner', 'task.cancel', 'task', task.id, { from: task.status });
+      return true;
     });
+    if (!cancelled) return errorJson(res, 409, 'CONFLICT', 'task changed state concurrently; re-check and retry');
     // Dependents of a cancelled task can never run; the objective may now be
     // fully terminal — both must be handled here, not just on worker paths.
     cascadeDependencyFailure(db, cfg, task.id);

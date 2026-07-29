@@ -303,7 +303,11 @@ backend.on('objective.finished', (ev) => {
     : status === 'cancelled' ? `⏹ ${t('chat.objectiveCancelled')}`
     : `❌ ${t('chat.objectiveFailed')}`,
   );
-  announcer.say(status === 'completed' ? t('announce.objectiveCompleted') : t('announce.executionFailed'));
+  announcer.say(
+    status === 'completed' ? t('announce.objectiveCompleted')
+    : status === 'cancelled' ? t('announce.objectiveCancelled')
+    : t('announce.executionFailed'),
+  );
   void cards.render();
 });
 backend.on('approval.requested', (ev) => {

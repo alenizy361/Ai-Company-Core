@@ -45,7 +45,11 @@ export class SayStreamExtractor {
     this.raw += delta;
     if (this.mode === 'pending') {
       const lead = this.raw.trimStart();
-      if (lead.includes('{')) {
+      // Only a '{' near the START signals JSON-with-prefix; a brace deep in
+      // prose (a code snippet, a quoted example) must not suppress raw
+      // streaming for the whole reply.
+      const bracePos = lead.indexOf('{');
+      if (bracePos !== -1 && bracePos < RAW_LOOKAHEAD_CHARS) {
         // JSON is coming (possibly after a fence/preamble): wait for the say
         // key and stream its decoded value only.
         const m = SAY_KEY_RE.exec(this.raw);
@@ -73,7 +77,8 @@ export class SayStreamExtractor {
     if (this.mode === 'json') return this.scanValue(true);
     if (this.mode === 'pending') {
       const lead = this.raw.trimStart();
-      if (lead.length > 0 && !lead.includes('{')) {
+      const bracePos = lead.indexOf('{');
+      if (lead.length > 0 && (bracePos === -1 || bracePos >= RAW_LOOKAHEAD_CHARS)) {
         // Short prose reply that never hit the lookahead threshold: it is
         // definitively raw now the stream is over — release it.
         this.mode = 'raw';
@@ -82,9 +87,9 @@ export class SayStreamExtractor {
         this.emittedText += out;
         return out;
       }
-      // A '{' was seen but no say key ever materialized (non-contract JSON):
-      // nothing was emitted. The caller's full-text parse decides what to
-      // show — do not guess here.
+      // An early '{' was seen but no say key ever materialized (non-contract
+      // JSON): nothing was emitted. The caller's full-text parse decides what
+      // to show — do not guess here.
       return '';
     }
     return '';
