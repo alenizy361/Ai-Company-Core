@@ -70,7 +70,7 @@ export interface PlanContext {
   minSpecChars: number;
 }
 
-const STEP_ID_RE = /^[a-z0-9][a-z0-9_-]{1,40}$/;
+const STEP_ID_RE = /^[a-z0-9][a-z0-9_-]{0,40}$/;
 
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === 'string');

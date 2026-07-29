@@ -37,7 +37,10 @@ export class MockAdapter implements ModelAdapter {
     this.script = script ?? null;
   }
 
-  complete(req: CompletionRequest): Promise<CompletionResult> {
+  async complete(req: CompletionRequest): Promise<CompletionResult> {
+    // Optional per-turn delay so tests can kill a worker mid-execution.
+    const delay = Number(process.env.MOCK_TURN_DELAY_MS ?? 0);
+    if (delay > 0) await new Promise((r) => setTimeout(r, delay));
     const script = this.script ?? extractEmbeddedScript(req);
     // The turn index is how many assistant turns already happened.
     const turnIndex = req.messages.filter((m) => m.role === 'assistant').length;

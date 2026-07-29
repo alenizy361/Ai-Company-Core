@@ -46,6 +46,18 @@ function readJson<T>(path: string): T {
 export function loadSystemConfig(): SystemConfig {
   const cfg = readJson<SystemConfig>(join(REPO_ROOT, 'config', 'system.json'));
   if (process.env.PORT) cfg.port = Number(process.env.PORT);
+  // Timing overrides so integration tests can exercise lease/sweep/recovery
+  // behavior in seconds instead of minutes.
+  for (const [env, key] of [
+    ['RABIT_LEASE_MS', 'leaseMs'],
+    ['RABIT_HEARTBEAT_MS', 'heartbeatMs'],
+    ['RABIT_SWEEP_MS', 'sweepMs'],
+    ['RABIT_STALE_WORKER_MS', 'staleWorkerMs'],
+    ['RABIT_APPROVAL_TIMEOUT_MS', 'approvalTimeoutMs'],
+    ['RABIT_MAX_WALL_CLOCK_MS', 'maxWallClockMs'],
+  ] as const) {
+    if (process.env[env]) (cfg as unknown as Record<string, number>)[key] = Number(process.env[env]);
+  }
   return cfg;
 }
 
