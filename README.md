@@ -47,10 +47,37 @@ projects/onboarding/
 tasks/weekly-review/TASK.md             recurring, assignee: ceo
 .paperclip.yaml                         adapter config, quota notes, cron routine
 scripts/setup.sh                        onboard Paperclip + import this company
-dashboard/index.html                    self-contained voice dashboard (demo or live)
-server/rabit-brain.py                   Claude chat backend that makes it live
-server/install.sh                       one-shot VPS installer (dashboard+brain+nginx)
+dashboard/index.html                    voice dashboard (access-code lock, live chat, real-exec)
+server/rabit-brain.py                   Claude chat brain: auth + memory + job intake
+server/rabit-worker.py                  runs confirmed orders as real file-producing jobs
+server/rabit-telegram.py                Telegram bridge (owner-only, proactive + two-way)
+server/rabit_claude.py                  shared Claude CLI helpers (chat + tool-enabled build)
+server/routines/                        cron: health-monitor, morning-brief, memory-distill
+server/install.sh                       one-shot VPS installer (all of the above, hardened)
 ```
+
+## The voice dashboard ("Rabit")
+
+`dashboard/index.html` is a self-contained Arabic/English voice command center
+served by nginx. `server/*` turns it from a visual demo into a real assistant:
+
+- **Real brain** — `rabit-brain.py` sends the owner's chat to Claude (Max-plan
+  CLI or `ANTHROPIC_API_KEY`) and returns a spoken reply. Honest by design: the
+  agent board is labeled a visual *simulation*; nothing is claimed as real work
+  unless a job actually runs.
+- **Real hands** — when the owner asks for something a sandbox can build (a web
+  page, report, document, code), Claude returns an *order*; the owner taps
+  Confirm; `rabit-worker.py` runs Claude with file tools only (no shell, no
+  internet) in a per-job workspace and publishes the result to
+  `/deliverables/<job>/`.
+- **Memory & proactivity** — SQLite conversation history that survives restarts,
+  a distilled long-term memory file injected into the prompt, a Telegram bridge
+  for morning briefs / alerts / phone chat, and a server-health "eyes" snapshot.
+- **Secure by construction** — access-code (bearer token) gate on every endpoint,
+  HTTPS via certbot, all services run as a non-root `rabit` user under systemd
+  hardening. Run `server/install.sh` on the VPS to set it all up.
+
+This voice layer is independent of the Paperclip company package below.
 
 ## Quickstart
 

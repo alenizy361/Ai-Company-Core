@@ -165,6 +165,27 @@
   .rbtn.spk.off{opacity:.4}
   .rbtn:disabled{opacity:.35}
   #voiceNote{font-size:10px;color:var(--dim);text-align:center;padding-top:6px;display:none}
+  /* ============ order card + lock ============ */
+  .orderCard{align-self:stretch;background:#0a1330;border:1px solid rgba(56,225,255,.35);
+    border-radius:16px;padding:12px 14px;margin:2px 0}
+  .orderCard .ot{font-size:11px;font-weight:800;letter-spacing:.5px;color:var(--cyan);margin-bottom:4px}
+  .orderCard .odesc{font-size:13px;color:var(--text);margin-bottom:10px;line-height:1.5}
+  .orderCard button{width:100%;border:0;border-radius:12px;padding:11px;font-size:14px;font-weight:800;
+    background:linear-gradient(135deg,var(--cyan),#0ea5c9);color:#04121a;cursor:pointer}
+  .orderCard button:disabled{opacity:.5}
+  .orderCard a.open{display:block;text-align:center;margin-top:8px;color:var(--cyan);font-weight:700;
+    text-decoration:none;font-size:14px}
+  #lock{position:fixed;inset:0;z-index:60;background:var(--bg);display:none;
+    flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px}
+  #lock.show{display:flex}
+  #lock h2{font-size:20px;font-weight:800}
+  #lock p{color:var(--dim);font-size:13px}
+  #lockInp{width:100%;max-width:320px;text-align:center;background:#070a16;border:1px solid var(--line);
+    border-radius:14px;color:var(--text);padding:14px;font-size:16px;letter-spacing:2px;outline:none}
+  #lockInp:focus{border-color:var(--cyan)}
+  #lockBtn{width:100%;max-width:320px;border:0;border-radius:14px;padding:14px;font-size:15px;font-weight:800;
+    background:var(--cyan);color:#04121a;cursor:pointer}
+  #lockErr{color:var(--red);font-size:13px;height:16px}
 </style>
 </head>
 <body>
@@ -212,6 +233,14 @@
   <div id="dEmpty" data-i18n="dEmpty">لا يوجد نشاط بعد — أرسل أمرًا للشركة</div>
 </div>
 
+<div id="lock">
+  <h2 data-i18n="lockTitle">رمز الدخول</h2>
+  <p data-i18n="lockHint">أدخل رمز الدخول الخاص بك</p>
+  <input id="lockInp" type="password" inputmode="text" autocomplete="off" autocapitalize="off">
+  <div id="lockErr"></div>
+  <button id="lockBtn" data-i18n="lockBtn">دخول</button>
+</div>
+
 <div id="dock">
   <div id="msgs"></div>
   <div id="dockRow">
@@ -247,7 +276,12 @@ const I18N={
       offline:"النواة غير متصلة بالخادم. تأكد أن خدمة rabit-brain شغالة على السيرفر ثم حدّث الصفحة.",
       doneReply:"انتهى عرض المحاكاة على اللوحة. هذا عرض بصري فقط — ما تم تنفيذ أي عمل فعلي.",
       doneSay:"انتهت المحاكاة على اللوحة يا مدير.",
-      task:"المهمة الحالية",noTask:"بدون مهمة نشطة"},
+      task:"المهمة الحالية",noTask:"بدون مهمة نشطة",
+      lockTitle:"رمز الدخول",lockHint:"أدخل رمز الدخول الخاص بك",lockBtn:"دخول",lockErr:"رمز غير صحيح",
+      execConfirm:"تنفيذ فعلي",execTitle:"أمر جاهز للتنفيذ الحقيقي",
+      execRunning:"جاري التنفيذ الفعلي على الخادم…",execWait:"قد يستغرق دقائق — أطلعك أول ما يخلص.",
+      execDone:"خلص التنفيذ الحقيقي. النتيجة جاهزة:",execOpen:"افتح النتيجة",
+      execFail:"تعذّر إتمام التنفيذ:",execSent:"أرسلت الأمر للتنفيذ الحقيقي."},
   en:{caption:"Tap any agent to view its activity — visual simulation",liveFeed:"ACTIVITY SIMULATION",simTag:"SIM",
       coreStatus:"AI CORE STATUS",central:"Central core",
       agents:"Agents",working:"Working now",
@@ -262,7 +296,12 @@ const I18N={
       offline:"The core is not connected to the server. Make sure the rabit-brain service is running, then refresh the page.",
       doneReply:"Board simulation finished. This is a visual demo only — no real work was executed.",
       doneSay:"Board simulation finished, boss.",
-      task:"Current mission",noTask:"No active mission"}
+      task:"Current mission",noTask:"No active mission",
+      lockTitle:"Access code",lockHint:"Enter your access code",lockBtn:"Enter",lockErr:"Wrong code",
+      execConfirm:"Run for real",execTitle:"Order ready for real execution",
+      execRunning:"Running for real on the server…",execWait:"May take a few minutes — I'll tell you when it's done.",
+      execDone:"Real execution finished. Result is ready:",execOpen:"Open result",
+      execFail:"Execution could not complete:",execSent:"Order sent for real execution."}
 };
 let lang="ar";
 function T(k){return I18N[lang][k];}
@@ -347,19 +386,51 @@ const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
 if(!("timeout" in AbortSignal)){ /* older Safari/WebView */
   AbortSignal.timeout=ms=>{const c=new AbortController();setTimeout(()=>c.abort(),ms);return c.signal;};
 }
-let LIVE=false;
+let LIVE=false,HEALTH={};
+/* owner access token — stored after the lock screen, sent as Bearer on /api/* */
+let TOKEN=localStorage.getItem("rabit_token")||"";
+function authFetch(url,opts){
+  opts=opts||{};opts.headers=Object.assign({},opts.headers);
+  if(TOKEN)opts.headers["Authorization"]="Bearer "+TOKEN;
+  return fetch(url,opts);
+}
 async function probeLive(){
   try{
     const r=await fetch("/api/health",{signal:AbortSignal.timeout(2500)});
     if(!r.ok)throw 0;
     const j=await r.json().catch(()=>null);
-    if(j&&j.ok&&j.brain&&j.brain!=="none"){
-      LIVE=true;modeBadge.textContent="LIVE";modeBadge.className="live";
-      setCore(coreMode);wakeBoard();
+    if(j&&j.ok){
+      HEALTH=j;
+      if(j.brain&&j.brain!=="none"){
+        LIVE=true;modeBadge.textContent="LIVE";modeBadge.className="live";
+        setCore(coreMode);wakeBoard();
+        if(j.auth&&!TOKEN)showLock();      /* protected + no code yet → ask */
+      }
     }
   }catch(e){}
   stAgents.textContent=AGENTS.length;
 }
+
+/* ================= lock screen (owner access code) ================= */
+function showLock(){lockErr.textContent="";lock.classList.add("show");setTimeout(()=>lockInp.focus(),100);}
+function hideLock(){lock.classList.remove("show");}
+async function tryUnlock(){
+  const code=lockInp.value.trim();if(!code)return;
+  lockBtn.disabled=true;lockErr.textContent="";
+  try{
+    const r=await fetch("/api/chat",{method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":"Bearer "+code},
+      body:JSON.stringify({message:"مرحبا",lang}),signal:AbortSignal.timeout(240000)});
+    if(r.status===401){lockErr.textContent=T("lockErr");lockBtn.disabled=false;return;}
+    TOKEN=code;localStorage.setItem("rabit_token",code);
+    hideLock();
+    const j=await r.json().catch(()=>null); /* greet with the brain's real hello */
+    if(j&&j.reply){addMsg(j.reply,false);say(j.reply);}
+  }catch(e){lockErr.textContent=T("lockErr");}
+  lockBtn.disabled=false;
+}
+lockBtn.onclick=tryUnlock;
+lockInp.addEventListener("keydown",e=>{if(e.key==="Enter")tryUnlock();});
 
 /* ================= build nodes ================= */
 const stage=document.getElementById("stage"),nodesEl=document.getElementById("nodes");
@@ -565,16 +636,13 @@ spkBtn.onclick=()=>{
   if(!voiceOn){ttsQ.length=0;try{speechSynthesis.cancel();}catch(e){}}
 };
 function say(txt,agent){
-  if(!voiceOn||!("speechSynthesis" in window))return;
+  if(!voiceOn)return;
   ttsQ.push({txt,agent});pumpTTS();
 }
-function pumpTTS(){
+async function pumpTTS(){
   if(speakingNow||!ttsQ.length)return;
   speakingNow=true;
   const {txt,agent}=ttsQ.shift();
-  const u=new SpeechSynthesisUtterance(txt);
-  u.lang=/[؀-ۿ]/.test(txt)?"ar-SA":"en-US";
-  u.rate=1.04;u.pitch=agent?agent.pitch:1;
   let prev=null;
   if(agent&&agent.status!=="working"){prev=agent.status;agent.status="talking";updateNode(agent);refreshStats();}
   const iv=setInterval(()=>{speakAmp=0.55+Math.random()*0.45;},120);
@@ -583,6 +651,26 @@ function pumpTTS(){
     if(agent&&agent.status==="talking"){agent.status=prev==="done"?"done":prev||"idle";updateNode(agent);refreshStats();}
     speakingNow=false;setTimeout(pumpTTS,220);
   };
+  /* prefer a natural neural voice from the server; fall back to browser TTS */
+  if(LIVE&&HEALTH.tts&&HEALTH.tts!=="browser"){
+    try{
+      const r=await authFetch("/api/tts",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({text:txt,lang:/[؀-ۿ]/.test(txt)?"ar":"en"}),signal:AbortSignal.timeout(20000)});
+      if(r.ok&&(r.headers.get("Content-Type")||"").includes("audio")){
+        const url=URL.createObjectURL(await r.blob());
+        const au=new Audio(url);au.onended=()=>{URL.revokeObjectURL(url);done();};
+        au.onerror=()=>{URL.revokeObjectURL(url);browserSay(txt,agent,done);};
+        au.play().catch(()=>browserSay(txt,agent,done));return;
+      }
+    }catch(e){}
+  }
+  browserSay(txt,agent,done);
+}
+function browserSay(txt,agent,done){
+  if(!("speechSynthesis" in window)){done();return;}
+  const u=new SpeechSynthesisUtterance(txt);
+  u.lang=/[؀-ۿ]/.test(txt)?"ar-SA":"en-US";
+  u.rate=1.04;u.pitch=agent?agent.pitch:1;
   u.onend=done;u.onerror=done;
   try{speechSynthesis.speak(u);}catch(e){done();}
 }
@@ -722,18 +810,19 @@ function addTyping(){
   return el;
 }
 
-/* LIVE mode: the real Claude brain answers and picks the crew */
+/* LIVE mode: the real Claude brain answers, picks the crew, and may return a
+   real work order the owner can confirm to execute for real */
 async function askBrain(v){
   const th=addTyping();
   if(!missionActive)setCore("planning");
   try{
-    const r=await fetch("/api/chat",{
+    const r=await authFetch("/api/chat",{
       method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({message:v,lang,session:SID}),
       signal:AbortSignal.timeout(240000)});
+    if(r.status===401){th.remove();TOKEN="";localStorage.removeItem("rabit_token");showLock();return;}
     const j=await r.json().catch(()=>null);
     if(!r.ok){
-      /* the server puts user-facing text (e.g. rate-limit notice) in j.reply */
       if(j&&j.reply){th.remove();addMsg(j.reply,false);say(j.reply);
         if(!missionActive)setCore("idle");return;}
       throw 0;
@@ -742,18 +831,67 @@ async function askBrain(v){
     th.remove();
     const reply=(j.reply||"").trim();
     const team=(j.team||[]).filter(k=>byKey[k]&&k!=="CEO"&&k!=="PM");
-    if(!reply&&!team.length)throw 0; /* nothing usable → demo fallback */
+    const order=j.order;
+    if(!reply&&!team.length&&!order)throw 0;
     if(reply){addMsg(reply,false);say(reply);}
+    if(order&&order.spec)orderCard(order);   /* real execution offer */
     if(team.length){
       if(missionActive){cmdQ.push({cmd:v,opts:{team,quiet:true}});addMsg(T("queued"),false);}
       else startMission(v,{team,quiet:true});
-    }else if(!missionActive)setCore("idle");
+    }else if(!missionActive&&!order)setCore("idle");
   }catch(e){
-    /* brain unreachable or unusable response — say so honestly */
     th.remove();
     addMsg(T("offline"),false);
     if(!missionActive)setCore("idle");
   }
+}
+
+/* render a confirm-to-execute card; on confirm, enqueue a real job and poll it */
+function orderCard(order){
+  msgs.classList.add("open");
+  const card=document.createElement("div");card.className="msg ai orderCard";
+  const desc=(order.title||"").slice(0,140);
+  card.innerHTML=`<div class="ot">${T("execTitle")}</div><div class="odesc"></div>`+
+    `<button>${T("execConfirm")}</button>`;
+  card.querySelector(".odesc").textContent=desc;
+  const btn=card.querySelector("button");
+  btn.onclick=async()=>{
+    btn.disabled=true;
+    try{
+      const r=await authFetch("/api/confirm",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({title:order.title,spec:order.spec}),signal:AbortSignal.timeout(20000)});
+      if(r.status===401){TOKEN="";localStorage.removeItem("rabit_token");showLock();return;}
+      const j=await r.json();
+      if(!j.job_id){btn.disabled=false;addMsg(T("execFail")+" "+(j.error||""),false);return;}
+      card.querySelector(".ot").textContent=T("execRunning");
+      btn.remove();
+      const wait=document.createElement("div");wait.className="odesc";wait.textContent=T("execWait");
+      card.appendChild(wait);
+      addMsg(T("execSent"),false);
+      pollJob(j.job_id,card,wait);
+    }catch(e){btn.disabled=false;addMsg(T("execFail")+" "+e,false);}
+  };
+  msgs.appendChild(card);msgs.scrollTop=msgs.scrollHeight;
+}
+async function pollJob(id,card,wait){
+  for(let i=0;i<220;i++){          /* up to ~18 min */
+    await new Promise(r=>setTimeout(r,5000));
+    let j;try{
+      const r=await authFetch("/api/job?id="+encodeURIComponent(id),{signal:AbortSignal.timeout(15000)});
+      j=await r.json();
+    }catch(e){continue;}
+    if(j.status==="done"){
+      card.querySelector(".ot").textContent=T("execDone");wait.remove();
+      const a=document.createElement("a");a.className="open";a.href=(j.url||("/deliverables/"+id+"/"));
+      a.target="_blank";a.textContent=T("execOpen");card.appendChild(a);
+      say(T("execDone"));return;
+    }
+    if(j.status==="failed"){
+      card.querySelector(".ot").textContent=T("execFail");
+      wait.textContent=(j.error||"").slice(0,200);say(T("execFail"));return;
+    }
+  }
+  wait.textContent="…";
 }
 
 function send(){

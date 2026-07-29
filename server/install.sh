@@ -1,144 +1,268 @@
 #!/bin/bash
-# Rabit AI Company OS — one-shot installer for the dashboard + Claude brain.
-# Run on the VPS as root:
-#   curl -fsSL https://raw.githubusercontent.com/alenizy361/Ai-Company-Core/claude/voice-agent-chat-site-xtpr4o/server/install.sh | bash
-set -e
-
+# =====================================================================
+#  Rabit AI — full end-to-end installer (dashboard + brain + memory +
+#  real execution + Telegram + proactivity + HTTPS + auth + hardening)
+#  Run on the Ubuntu VPS as root:
+#    curl -fsSL https://raw.githubusercontent.com/alenizy361/Ai-Company-Core/claude/voice-agent-chat-site-xtpr4o/server/install.sh | bash
+#  Fully unattended is possible by pre-setting env vars (see PROMPTS below).
+# =====================================================================
+set -euo pipefail
 BRANCH="claude/voice-agent-chat-site-xtpr4o"
 RAW="https://raw.githubusercontent.com/alenizy361/Ai-Company-Core/$BRANCH"
+ENVF=/etc/rabit-brain.env
+RUSER=rabit
+say(){ printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
+warn(){ printf '\033[1;33m    ! %s\033[0m\n' "$1"; }
+ok(){ printf '\033[1;32m    %s\033[0m\n' "$1"; }
 
-echo "==> Checking prerequisites..."
-if ! command -v nginx >/dev/null 2>&1; then
-  echo "    nginx not found — installing..."
-  apt-get update -y -qq && apt-get install -y -qq nginx
-fi
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "    python3 not found — installing..."
-  apt-get update -y -qq && apt-get install -y -qq python3
-fi
+# read a value: env var wins, else prompt on the terminal, else default
+ask(){ local var="$1" prompt="$2" def="${3:-}" cur="${!1:-}"
+  if [ -n "$cur" ]; then printf '%s' "$cur"; return; fi
+  if [ -r /dev/tty ]; then printf '\033[1;35m?? %s\033[0m ' "$prompt" >/dev/tty
+    local a; read -r a </dev/tty || a=""; printf '%s' "${a:-$def}"
+  else printf '%s' "$def"; fi; }
 
-echo "==> Downloading dashboard + brain..."
-mkdir -p /opt/rabit-brain /var/www/rabit
-curl -fsSL "$RAW/server/rabit-brain.py" -o /opt/rabit-brain/rabit-brain.py
+[ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
+
+say "Installing prerequisites..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y -qq
+apt-get install -y -qq nginx python3 python3-pip sqlite3 curl openssl ufw \
+  certbot python3-certbot-nginx >/dev/null 2>&1 || \
+  apt-get install -y -qq nginx python3 python3-pip sqlite3 curl openssl ufw certbot python3-certbot-nginx
+pip3 install -q -U anthropic 2>/dev/null || pip3 install -q -U --break-system-packages anthropic 2>/dev/null || \
+  warn "anthropic SDK not installed (only needed for API-key mode; Max-plan CLI mode is fine)"
+
+say "Creating the non-root service user '$RUSER'..."
+id "$RUSER" >/dev/null 2>&1 || useradd -m -s /bin/bash "$RUSER"
+mkdir -p /opt/rabit-brain /var/www/rabit /srv/rabit-jobs /srv/rabit-deliverables
+chown -R "$RUSER:$RUSER" /opt/rabit-brain /srv/rabit-jobs /srv/rabit-deliverables
+
+say "Downloading Rabit files..."
+for f in rabit-brain.py rabit-worker.py rabit-telegram.py rabit_claude.py; do
+  curl -fsSL "$RAW/server/$f" -o "/opt/rabit-brain/$f"
+done
+mkdir -p /opt/rabit-brain/routines
+for f in health-monitor.sh morning-brief.sh memory-distill.sh; do
+  curl -fsSL "$RAW/server/routines/$f" -o "/opt/rabit-brain/routines/$f"
+  chmod +x "/opt/rabit-brain/routines/$f"
+done
 curl -fsSL "$RAW/dashboard/index.html" -o /var/www/rabit/index.html
+chown -R "$RUSER:$RUSER" /opt/rabit-brain
 
-echo "==> Installing the anthropic SDK (only needed for API-key mode)..."
-if ! command -v pip3 >/dev/null 2>&1; then
-  apt-get update -y -qq && apt-get install -y -qq python3-pip || true
-fi
-if command -v pip3 >/dev/null 2>&1; then
-  pip3 install -q -U anthropic \
-    || pip3 install -q -U --break-system-packages anthropic \
-    || echo "    WARNING: could not install the anthropic SDK — API-key mode won't work (CLI/Max-plan mode is unaffected)"
-else
-  echo "    WARNING: pip3 unavailable — API-key mode won't work (CLI/Max-plan mode is unaffected)"
-fi
+# ---------------- config / secrets ----------------
+say "Configuring..."
+touch "$ENVF"; chmod 640 "$ENVF"; chown "root:$RUSER" "$ENVF"
+get(){ grep -oP "^$1=\K.*" "$ENVF" 2>/dev/null | head -1 || true; }
+put(){ grep -q "^$1=" "$ENVF" && sed -i "s|^$1=.*|$1=$2|" "$ENVF" || echo "$1=$2" >> "$ENVF"; }
 
-touch /etc/rabit-brain.env
-chmod 600 /etc/rabit-brain.env
+# access code (owner token) — generate once, keep across re-runs
+TOKEN=$(get RABIT_TOKEN); [ -z "$TOKEN" ] && TOKEN=$(openssl rand -hex 16)
+put RABIT_TOKEN "$TOKEN"
 
-echo "==> Picking a free port for the brain..."
-systemctl stop rabit-brain 2>/dev/null || true
-port_free() {
-  python3 - "$1" <<'PY' 2>/dev/null
-import socket, sys
-s = socket.socket()
-try:
-    s.bind(("127.0.0.1", int(sys.argv[1])))
-except OSError:
-    sys.exit(1)
+# free port
+port_free(){ python3 - "$1" <<'PY' 2>/dev/null
+import socket,sys
+s=socket.socket()
+try: s.bind(("127.0.0.1",int(sys.argv[1])))
+except OSError: sys.exit(1)
 PY
 }
-PORT=$(grep -oP '^RABIT_PORT=\K[0-9]+' /etc/rabit-brain.env 2>/dev/null | head -1 || true)
-if [ -n "$PORT" ] && ! port_free "$PORT"; then
-  echo "    port $PORT (from RABIT_PORT) is taken by another program — picking a new one"
-  sed -i '/^RABIT_PORT=/d' /etc/rabit-brain.env
-  PORT=""
+PORT=$(get RABIT_PORT); systemctl stop rabit-brain 2>/dev/null || true
+if [ -z "$PORT" ] || ! port_free "$PORT"; then PORT=8787
+  port_free "$PORT" || for p in 8899 8901 8917 9411 9737; do port_free "$p" && { PORT=$p; break; }; done
 fi
-if [ -z "$PORT" ]; then
-  PORT=8787
-  if ! port_free "$PORT"; then
-    for p in 8899 8901 8917 9411 9737; do
-      if port_free "$p"; then PORT=$p; break; fi
-    done
-    echo "RABIT_PORT=$PORT" >> /etc/rabit-brain.env
-    echo "    8787 is taken by another program — using $PORT instead"
-  fi
-fi
-echo "    brain port: $PORT"
+put RABIT_PORT "$PORT"; put RABIT_MODEL "${RABIT_MODEL:-claude-opus-5}"
+put RABIT_DB /opt/rabit-brain/rabit.db
+put RABIT_MEMORY /opt/rabit-brain/memory.md
+put RABIT_STATUS /opt/rabit-brain/status.json
+put RABIT_JOBS_DIR /srv/rabit-jobs
+put RABIT_DELIVER_DIR /srv/rabit-deliverables
+put RABIT_EXEC "${RABIT_EXEC:-1}"
 
-echo "==> Installing systemd service rabit-brain..."
-cat > /etc/systemd/system/rabit-brain.service <<'EOF'
+# voice mode
+VMODE=$(get RABIT_TTS); [ -z "$VMODE" ] && VMODE=$(ask RABIT_TTS \
+  "Voice output? [browser=free default / azure / elevenlabs]" browser)
+put RABIT_TTS "${VMODE:-browser}"
+[ "$VMODE" = azure ] && { put AZURE_TTS_KEY "$(ask AZURE_TTS_KEY 'Azure Speech key' '')"
+                          put AZURE_TTS_REGION "$(ask AZURE_TTS_REGION 'Azure region (e.g. eastus)' '')"; }
+[ "$VMODE" = elevenlabs ] && put ELEVEN_KEY "$(ask ELEVEN_KEY 'ElevenLabs API key' '')"
+
+# telegram (optional)
+TG=$(get TELEGRAM_TOKEN); [ -z "$TG" ] && TG=$(ask TELEGRAM_TOKEN \
+  "Telegram bot token from @BotFather (blank to skip)" '')
+[ -n "$TG" ] && { put TELEGRAM_TOKEN "$TG"
+  CID=$(get TELEGRAM_CHAT_ID); [ -z "$CID" ] && CID=$(ask TELEGRAM_CHAT_ID \
+    "Your Telegram chat id (send your bot a message first, blank to auto-detect later)" '')
+  [ -n "$CID" ] && put TELEGRAM_CHAT_ID "$CID"; }
+
+# domain for HTTPS
+DOMAIN=$(ask RABIT_DOMAIN "Domain pointing at this server for HTTPS (blank = stay on http, mic stays OFF)" '')
+
+# ---------------- systemd units ----------------
+say "Installing services..."
+HARDEN="NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ReadWritePaths=/opt/rabit-brain /srv/rabit-jobs /srv/rabit-deliverables"
+unit(){ cat > "/etc/systemd/system/$1.service"; }
+
+unit rabit-brain <<EOF
 [Unit]
-Description=Rabit AI brain (Claude chat backend for the dashboard)
+Description=Rabit AI brain
 After=network.target
-
 [Service]
+User=$RUSER
 ExecStart=/usr/bin/python3 /opt/rabit-brain/rabit-brain.py
 WorkingDirectory=/opt/rabit-brain
-EnvironmentFile=-/etc/rabit-brain.env
-Environment=HOME=/root
-Environment=PATH=/root/.local/bin:/root/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=-$ENVF
+Environment=HOME=/home/$RUSER
+Environment=PATH=/home/$RUSER/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Restart=always
 RestartSec=3
-
+$HARDEN
+ReadWritePaths=/opt/rabit-brain /srv/rabit-jobs /srv/rabit-deliverables /home/$RUSER
 [Install]
 WantedBy=multi-user.target
 EOF
 
-echo "==> Configuring nginx..."
-cat > /etc/nginx/sites-available/rabit-dashboard <<'EOF'
+unit rabit-worker <<EOF
+[Unit]
+Description=Rabit execution worker
+After=network.target rabit-brain.service
+[Service]
+User=$RUSER
+ExecStart=/usr/bin/python3 /opt/rabit-brain/rabit-worker.py
+WorkingDirectory=/opt/rabit-brain
+EnvironmentFile=-$ENVF
+Environment=HOME=/home/$RUSER
+Environment=PATH=/home/$RUSER/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Restart=always
+RestartSec=5
+MemoryMax=2G
+CPUQuota=80%
+$HARDEN
+ReadWritePaths=/opt/rabit-brain /srv/rabit-jobs /srv/rabit-deliverables /home/$RUSER
+[Install]
+WantedBy=multi-user.target
+EOF
+
+unit rabit-telegram <<EOF
+[Unit]
+Description=Rabit Telegram bridge
+After=network.target rabit-brain.service
+[Service]
+User=$RUSER
+ExecStart=/usr/bin/python3 /opt/rabit-brain/rabit-telegram.py
+WorkingDirectory=/opt/rabit-brain
+EnvironmentFile=-$ENVF
+Environment=HOME=/home/$RUSER
+Restart=always
+RestartSec=10
+$HARDEN
+ReadWritePaths=/opt/rabit-brain /home/$RUSER
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# ---------------- nginx ----------------
+say "Configuring nginx..."
+cat > /etc/nginx/sites-available/rabit-dashboard <<EOF
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
-    server_name _;
+    server_name ${DOMAIN:-_};
     root /var/www/rabit;
     index index.html;
 
+    location /deliverables/ {
+        alias /srv/rabit-deliverables/;
+        autoindex on;
+    }
     location /api/ {
-        proxy_pass http://127.0.0.1:8787;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header Host $host;
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header Host \$host;
         proxy_read_timeout 300s;
         proxy_connect_timeout 10s;
     }
 }
 EOF
-sed -i "s|127.0.0.1:8787|127.0.0.1:$PORT|" /etc/nginx/sites-available/rabit-dashboard
-# park any other enabled site so our default_server doesn't collide
 mkdir -p /root/nginx-backup
-for f in /etc/nginx/sites-enabled/*; do
-  [ -e "$f" ] || continue
-  [ "$(basename "$f")" = "rabit-dashboard" ] && continue
-  mv "$f" /root/nginx-backup/ 2>/dev/null || rm -f "$f"
-done
+for f in /etc/nginx/sites-enabled/*; do [ -e "$f" ] || continue
+  [ "$(basename "$f")" = rabit-dashboard ] && continue
+  mv "$f" /root/nginx-backup/ 2>/dev/null || rm -f "$f"; done
 ln -sf /etc/nginx/sites-available/rabit-dashboard /etc/nginx/sites-enabled/rabit-dashboard
 
 systemctl daemon-reload
-systemctl enable rabit-brain >/dev/null 2>&1 || true
-systemctl restart rabit-brain
-nginx -t
-systemctl enable --now nginx >/dev/null 2>&1 || true
-systemctl reload nginx
+systemctl enable rabit-brain rabit-worker rabit-telegram >/dev/null 2>&1 || true
+systemctl restart rabit-brain rabit-worker rabit-telegram
+nginx -t && { systemctl enable --now nginx >/dev/null 2>&1 || true; systemctl reload nginx; }
 
-sleep 2
-echo "==> Verifying..."
-if ! systemctl is-active --quiet rabit-brain; then
-  echo "ERROR: rabit-brain failed to start. Logs:"
-  journalctl -u rabit-brain -n 20 --no-pager || true
-  exit 1
+# ---------------- HTTPS ----------------
+if [ -n "$DOMAIN" ]; then
+  say "Getting HTTPS certificate for $DOMAIN..."
+  certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect \
+    && ok "HTTPS active — the iPhone mic will work now" \
+    || warn "certbot failed — check the domain's A record points at this server, then re-run: certbot --nginx -d $DOMAIN"
 fi
+
+# ---------------- cron routines ----------------
+say "Scheduling proactive routines (health, morning brief, memory)..."
+CRON=/etc/cron.d/rabit
+cat > "$CRON" <<EOF
+SHELL=/bin/bash
+*/5 * * * * $RUSER /opt/rabit-brain/routines/health-monitor.sh >/dev/null 2>&1
+0 4 * * * $RUSER /opt/rabit-brain/routines/morning-brief.sh >/dev/null 2>&1
+30 2 * * * $RUSER /opt/rabit-brain/routines/memory-distill.sh >/dev/null 2>&1
+EOF
+chmod 644 "$CRON"
+
+# ---------------- firewall + expose check ----------------
+say "Firewall + exposure check..."
+ufw allow 22/tcp >/dev/null 2>&1 || true
+ufw allow 80,443/tcp >/dev/null 2>&1 || ufw allow 80/tcp >/dev/null 2>&1 || true
+yes | ufw enable >/dev/null 2>&1 || true
+if command -v docker >/dev/null 2>&1; then
+  EXP=$(docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | grep -E '0\.0\.0\.0:(3100|18080|18081|5432|6379)' || true)
+  [ -n "$EXP" ] && { warn "DANGER: these containers are exposed to the whole internet:"; echo "$EXP"
+    warn "Bind them to localhost in your docker-compose (prefix ports with 127.0.0.1:) and 'docker compose up -d'."; }
+fi
+
+# ---------------- claude login for the rabit user ----------------
+say "Connecting the brain to your Claude account..."
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then put ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"; systemctl restart rabit-brain; fi
+NEEDLOGIN=1
+sudo -u "$RUSER" -H bash -lc 'test -e ~/.claude || test -e ~/.claude.json' 2>/dev/null && NEEDLOGIN=0
+if [ "$NEEDLOGIN" = 1 ] && [ -z "$(get ANTHROPIC_API_KEY)" ]; then
+  if [ -r /dev/tty ]; then
+    warn "The brain needs a Claude login as the '$RUSER' user (one time, uses your Max plan)."
+    printf '\033[1;35m?? Log in now? [Y/n]\033[0m ' >/dev/tty; read -r yn </dev/tty || yn=y
+    if [ "${yn:-y}" != n ]; then sudo -u "$RUSER" -H claude login </dev/tty >/dev/tty 2>&1 || \
+      warn "Login didn't complete — run later: sudo -u $RUSER -H claude login"; fi
+  else
+    warn "Run this one command to connect the brain: sudo -u $RUSER -H claude login"
+  fi
+fi
+systemctl restart rabit-brain rabit-worker rabit-telegram
+
+# ---------------- done ----------------
+sleep 2
+say "Verifying..."
+systemctl is-active --quiet rabit-brain || { warn "rabit-brain not running:"; journalctl -u rabit-brain -n 15 --no-pager || true; }
 HEALTH=$(curl -s --max-time 5 http://localhost/api/health || true)
 echo "Brain health: $HEALTH"
+URL="http://$( [ -n "$DOMAIN" ] && echo "$DOMAIN" || echo "$(hostname -I | awk '{print $1}')" )"
+[ -n "$DOMAIN" ] && URL="https://$DOMAIN"
 echo
-echo "Done ✅  Open the site and hard-refresh the page."
-case "$HEALTH" in
-  *'"brain": "none"'*|*'"brain":"none"'*|"")
-    echo
-    echo "Brain is NOT connected yet. Pick one:"
-    echo "  A) Max plan (no API key):  claude login   then:  systemctl restart rabit-brain"
-    echo "  B) API key:  echo 'ANTHROPIC_API_KEY=sk-ant-...' >> /etc/rabit-brain.env"
-    echo "     then:  systemctl restart rabit-brain"
-    ;;
+ok "Done."
+echo "  Site:        $URL"
+echo "  Access code: $TOKEN   (type it once on the site's lock screen)"
+echo
+case "$HEALTH" in *'"brain": "none"'*|*'"brain":"none"'*|"")
+  warn "Brain not connected yet — run:  sudo -u $RUSER -H claude login   then: systemctl restart rabit-brain";;
 esac
+[ -z "$DOMAIN" ] && warn "No domain set — the iPhone mic stays OFF. Re-run with a domain to enable voice."
+[ -z "$TG" ] && warn "No Telegram — you won't get morning briefs/alerts. Re-run with a bot token to enable."
