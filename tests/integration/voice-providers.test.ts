@@ -8,7 +8,7 @@ import { createHmac } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { makeEnv } from '../helpers/fixtures.ts';
 import { Router, errorJson } from '../../src/server/router.ts';
-import { registerVoiceProviderRoutes, mintLivekitToken } from '../../src/server/routes/voice-providers.ts';
+import { registerVoiceProviderRoutes, mintLivekitToken, espeakBin } from '../../src/server/routes/voice-providers.ts';
 import { createVoiceSession } from '../../src/voice/session.ts';
 
 function startServer(router: Router): Promise<{ base: string; close: () => void }> {
@@ -38,9 +38,10 @@ test('voice providers: session-gated, honest 503s, correct upstream shapes', asy
     return new Response(new Blob([Buffer.from('FAKE_MP3_BYTES')]), { status: 200, headers: { 'content-type': 'audio/mpeg' } });
   };
 
-  // Unconfigured instance: every provider reports the exact missing env var.
+  // Unconfigured instance (and no local TTS binary): every provider reports
+  // the exact missing env var.
   const bareRouter = new Router();
-  registerVoiceProviderRoutes(bareRouter, env.db, { env: {}, fetchImpl: stubFetch });
+  registerVoiceProviderRoutes(bareRouter, env.db, { env: {}, fetchImpl: stubFetch, localTts: false });
   const bare = await startServer(bareRouter);
   t.after(bare.close);
   const session = createVoiceSession(env.db, 'test', 900);
@@ -111,6 +112,27 @@ test('voice providers: session-gated, honest 503s, correct upstream shapes', asy
   // Wake key delivered only to an authenticated session.
   const wake = await fetch(`${keyed.base}/api/voice/wake-key?${auth}`, { method: 'POST' });
   assert.equal((await wake.json() as { accessKey: string }).accessKey, 'pico-key');
+});
+
+test('local espeak TTS: zero-key Arabic synthesis through the same relay', async (t) => {
+  if (!espeakBin()) return t.skip('espeak-ng not installed on this machine');
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const router = new Router();
+  registerVoiceProviderRoutes(router, env.db, { env: {} }); // no keys — local voice auto-detected
+  const srv = await startServer(router);
+  t.after(srv.close);
+  const session = createVoiceSession(env.db, 'test', 900);
+
+  const res = await fetch(`${srv.base}/api/voice/tts?session=${session.id}&token=${session.token}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'مرحباً، أنا سيرا.' }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'audio/wav');
+  const bytes = Buffer.from(await res.arrayBuffer());
+  assert.equal(bytes.subarray(0, 4).toString(), 'RIFF', 'real WAV audio produced');
+  assert.ok(bytes.length > 1000, `audio has substance (${bytes.length} bytes)`);
 });
 
 test('mintLivekitToken is deterministic and time-bounded', () => {

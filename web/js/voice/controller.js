@@ -68,10 +68,13 @@ export class VoiceController {
       try {
         const health = await (await fetch('/api/health')).json();
         const active = health.voiceProviders ?? {};
-        if (active.stt === 'deepgram' || active.tts === 'fish-audio') {
+        if (active.stt === 'deepgram' || active.tts === 'fish-audio' || active.tts === 'espeak') {
           const ext = await import('./providers-ext.js');
           if (active.stt === 'deepgram') this.stt = new ext.DeepgramTurnSTT(this.store, this.capture, this.store.turnConfig);
-          if (active.tts === 'fish-audio') {
+          if (active.tts === 'fish-audio' || active.tts === 'espeak') {
+            // Both are served by the same /api/voice/tts relay; espeak is the
+            // zero-key local voice (Linux browsers often have NO built-in
+            // speechSynthesis voices, which plays as pure silence).
             this.tts = new ext.FishAudioTTS(this.store);
             this.tts.onRemainder = (unspoken) => this.ui.onReply?.(`… ${unspoken}`, { interrupted: true });
           }
@@ -232,7 +235,14 @@ export class VoiceController {
           }
           fullSay += (fullSay ? ' ' : '') + data.text;
           if (!deltaText) this.ui.onDelta?.(fullSay); // non-streaming adapters
-          if (modality === 'voice' && this.tts.available && !this.capture.muted) this.tts.enqueue(data.text);
+          if (modality === 'voice' && !this.capture.muted) {
+            if (this.tts.available) this.tts.enqueue(data.text);
+            else if (!this._ttsWarned) {
+              // Honest degradation: never pretend to speak into silence.
+              this._ttsWarned = true;
+              this.ui.onError?.({ key: 'error.ttsUnavailable' });
+            }
+          }
         } else if (event === 'state') {
           this.store.mirror(data.state);
         } else if (event === 'route') {

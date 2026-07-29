@@ -4,10 +4,14 @@
 // until its key exists; the client then keeps its browser-native fallback.
 //
 //   POST /api/voice/stt           audio bytes -> Deepgram transcription
-//   POST /api/voice/tts           text -> Fish Audio synthesized audio
+//   POST /api/voice/tts           text -> synthesized audio: Fish Audio when
+//                                 keyed, else local espeak-ng when installed
+//                                 (zero-key voice — browsers on Linux often
+//                                 ship no speechSynthesis voices at all)
 //   POST /api/voice/livekit-token mint a LiveKit room JWT (HS256, node:crypto)
 //   POST /api/voice/wake-key      Porcupine access key for on-device wake word
 import { createHmac } from 'node:crypto';
+import { spawn, spawnSync } from 'node:child_process';
 import type { IncomingMessage } from 'node:http';
 import type { Db } from '../../shared/db.ts';
 import type { Router } from '../router.ts';
@@ -19,6 +23,24 @@ type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 export interface VoiceProviderDeps {
   fetchImpl?: FetchLike; // injectable for fixture tests
   env?: Record<string, string | undefined>;
+  /** Override local-TTS detection in tests (default: probe for espeak-ng). */
+  localTts?: boolean;
+}
+
+let espeakBinCache: string | null | undefined;
+
+/** Local zero-key TTS: espeak-ng (or espeak) if installed on this machine. */
+export function espeakBin(): string | null {
+  if (espeakBinCache !== undefined) return espeakBinCache;
+  for (const bin of ['espeak-ng', 'espeak']) {
+    const res = spawnSync(bin, ['--version'], { timeout: 5000 });
+    if (!res.error && res.status === 0) {
+      espeakBinCache = bin;
+      return bin;
+    }
+  }
+  espeakBinCache = null;
+  return null;
 }
 
 function readRawBody(req: IncomingMessage, limit: number): Promise<Buffer> {
@@ -103,13 +125,33 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
     }
   });
 
-  // ---- Fish Audio TTS (text -> audio bytes, streamed through) ----
+  // ---- TTS relay: Fish Audio when keyed, else local espeak-ng ----
   router.post('/api/voice/tts', async ({ res, query, body }) => {
     if (!requireSession(query, res)) return;
     const key = env.FISH_AUDIO_API_KEY;
-    if (!key) return errorJson(res, 503, 'PROVIDER_NOT_CONFIGURED', 'set FISH_AUDIO_API_KEY to enable Fish Audio TTS; the client falls back to speechSynthesis');
     const text = (body as { text?: string } | undefined)?.text;
     if (!text || typeof text !== 'string') return errorJson(res, 400, 'BAD_REQUEST', 'text is required');
+    if (!key) {
+      const localOk = deps.localTts ?? espeakBin() !== null;
+      if (!localOk) {
+        return errorJson(res, 503, 'PROVIDER_NOT_CONFIGURED',
+          'no server voice: set FISH_AUDIO_API_KEY, or install espeak-ng (sudo apt install espeak-ng); the client falls back to speechSynthesis');
+      }
+      // Local synthesis: honest, offline, Arabic-aware. WAV streamed as it
+      // is generated; the voice follows the text's language.
+      const bin = espeakBin()!;
+      const isArabic = /[؀-ۿ]/.test(text);
+      const child = spawn(bin, ['--stdin', '--stdout', '-v', isArabic ? 'ar' : 'en-us', '-s', '165']);
+      res.writeHead(200, { 'content-type': 'audio/wav', 'cache-control': 'no-store' });
+      child.stdout.pipe(res);
+      child.on('error', () => {
+        if (!res.headersSent) errorJson(res, 502, 'PROVIDER_ERROR', 'local TTS failed to start');
+        else res.end();
+      });
+      child.stdin.write(text.slice(0, 2000));
+      child.stdin.end();
+      return;
+    }
     try {
       const upstream = await fetchImpl('https://api.fish.audio/v1/tts', {
         method: 'POST',

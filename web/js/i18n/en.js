@@ -187,6 +187,7 @@ export default {
   'error.modelUnavailable': 'Model unavailable (ref {reference})',
   'error.micUnavailable': 'Microphone unavailable — type instead',
   'error.sttUnavailable': 'Speech recognition unavailable in this browser — type instead',
+  'error.ttsUnavailable': 'Speech output is unavailable: this browser has no speech voices. Install the server voice (sudo apt install espeak-ng, then restart SIRA) or add FISH_AUDIO_API_KEY.',
 
   // Announcements (batched screen-reader live region).
   'announce.listening': 'Listening',

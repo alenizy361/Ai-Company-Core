@@ -11,8 +11,21 @@ export class SpeechSynthesisTTS {
     this.spokenChars = 0;
     this.onRemainder = null;
     this.onBoundary = null; // (charIndex) => void — REAL word boundaries
-    this.available = 'speechSynthesis' in window;
     this._boundaryAt = 0;
+    // Voices can load asynchronously; prime the list and track changes.
+    if ('speechSynthesis' in window) {
+      speechSynthesis.getVoices();
+      speechSynthesis.addEventListener?.('voiceschanged', () => speechSynthesis.getVoices());
+    }
+  }
+
+  /**
+   * Honest availability: speechSynthesis with ZERO voices (common in Linux
+   * browsers) produces pure silence — that must surface as unavailable, not
+   * as a fake "speaking" state.
+   */
+  get available() {
+    return 'speechSynthesis' in window && speechSynthesis.getVoices().length > 0;
   }
 
   /**

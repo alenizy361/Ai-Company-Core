@@ -163,3 +163,8 @@ echo "    Voice:     works now with browser providers; add DEEPGRAM_API_KEY /"
 echo "               FISH_AUDIO_API_KEY / PICOVOICE_ACCESS_KEY / LIVEKIT_* env"
 echo "               vars to the services to switch on the external providers."
 echo "    Note:      the mic and speech APIs need localhost or HTTPS in the browser."
+if [ -z "${FISH_AUDIO_API_KEY:-}" ] && ! command -v espeak-ng >/dev/null 2>&1 && ! command -v espeak >/dev/null 2>&1; then
+  warn "no server voice installed — Linux browsers often have ZERO speech voices,"
+  warn "so replies may be silent. Enable SIRA's local voice (Arabic + English):"
+  warn "    sudo apt install -y espeak-ng     # then re-run this script"
+fi

@@ -175,6 +175,7 @@ export default {
   'error.modelUnavailable': 'النموذج غير متاح (مرجع {reference})',
   'error.micUnavailable': 'المايكروفون غير متاح — اكتب بدلًا من ذلك',
   'error.sttUnavailable': 'التعرف على الكلام غير متاح في هذا المتصفح — اكتب بدلًا من ذلك',
+  'error.ttsUnavailable': 'صوت الرد غير متاح: هذا المتصفح بلا أصوات نطق. ثبّت الصوت المحلي على الخادم (sudo apt install espeak-ng ثم أعد تشغيل سيرا) أو أضف FISH_AUDIO_API_KEY.',
 
   'announce.listening': 'أستمع',
   'announce.listeningStopped': 'توقف الاستماع',

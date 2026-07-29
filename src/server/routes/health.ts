@@ -7,6 +7,7 @@ import { json } from '../router.ts';
 import type { SseHub } from '../sse.ts';
 import type { SystemConfig } from '../../shared/config.ts';
 import { loadVoiceConfig } from '../../shared/config.ts';
+import { espeakBin } from './voice-providers.ts';
 
 export interface AdapterInfo {
   name: string;
@@ -43,7 +44,9 @@ export function registerHealthRoute(
     const voiceCfg = loadVoiceConfig();
     const voiceProviders = {
       stt: process.env[voiceCfg.providers.stt.keyEnv] ? voiceCfg.providers.stt.primary : voiceCfg.providers.stt.fallback,
-      tts: process.env[voiceCfg.providers.tts.keyEnv] ? voiceCfg.providers.tts.primary : voiceCfg.providers.tts.fallback,
+      tts: process.env[voiceCfg.providers.tts.keyEnv]
+        ? voiceCfg.providers.tts.primary
+        : espeakBin() ? 'espeak' : voiceCfg.providers.tts.fallback,
       wake: process.env[voiceCfg.providers.wake.keyEnv] ? voiceCfg.providers.wake.primary : voiceCfg.providers.wake.fallback,
       transport: voiceCfg.providers.transport.keyEnvs.every((e) => process.env[e])
         ? voiceCfg.providers.transport.primary
