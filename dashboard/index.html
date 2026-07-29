@@ -87,7 +87,8 @@
   #modeBadge{position:absolute;top:12px;inset-inline-start:14px;z-index:6;
     font-size:9px;padding:4px 10px;border-radius:999px;font-weight:800;letter-spacing:1.5px}
   #modeBadge.live{background:rgba(74,222,128,.15);color:var(--green);border:1px solid rgba(74,222,128,.4)}
-  #modeBadge.demo{background:rgba(251,191,36,.12);color:var(--amber);border:1px solid rgba(251,191,36,.4)}
+  #modeBadge.demo{background:rgba(251,113,133,.12);color:var(--red);border:1px solid rgba(251,113,133,.4)}
+  html[dir="rtl"] #sendBtn svg{transform:scaleX(-1)}
   /* ============ live feed ============ */
   .panel{
     margin:14px 12px;background:var(--card);border:1px solid var(--line);
@@ -214,12 +215,12 @@
 <div id="dock">
   <div id="msgs"></div>
   <div id="dockRow">
-    <button class="rbtn mic" id="micBtn" title="voice">🎙️</button>
-    <button class="rbtn spk" id="spkBtn" title="sound">🔊</button>
+    <button class="rbtn mic" id="micBtn" title="voice"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><path d="M12 18v4"/></svg></button>
+    <button class="rbtn spk" id="spkBtn" title="sound"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
     <input id="inp" data-i18n-ph="ask" placeholder="مُر شركتك… مثلاً: سوّوا لي متجر إلكتروني" autocomplete="off">
-    <button class="rbtn primary" id="sendBtn">➤</button>
+    <button class="rbtn primary" id="sendBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 20v-6l8-2-8-2V4l19 8z"/></svg></button>
   </div>
-  <div id="voiceNote" data-i18n="voiceNote">🎙️ الصوت يتطلب فتح الموقع عبر https</div>
+  <div id="voiceNote" data-i18n="voiceNote">الصوت يتطلب فتح الموقع عبر https</div>
 </div>
 
 <script>
@@ -236,32 +237,34 @@ const I18N={
       coreStatus:"حالة النواة",central:"النواة المركزية",
       agents:"الموظفون",working:"يعملون الآن",
       ask:"مُر شركتك… مثلاً: سوّوا لي متجر إلكتروني",
-      voiceNote:"🎙️ الصوت يتطلب فتح الموقع عبر https",
+      voiceNote:"الصوت يتطلب فتح الموقع عبر https",
       listening:"أستمع إليك…",dEmpty:"لا يوجد نشاط بعد — أرسل أمرًا للشركة",
       stIdle:"جاهزة",stPlan:"تخطط",stExec:"تنفّذ",
-      chipWork:"يعمل…",chipDone:"تم ✅",chipTalk:"يتكلم",
-      busy:"الفريق مشغول بمهمة حالية — أضفت أمرك للطابور وسننفذه بعدها مباشرة ⏳",
-      queued:"أضفت المهمة لطابور التنفيذ — تبدأ فور انتهاء المهمة الحالية ⏳",
+      chipWork:"يعمل…",chipDone:"تم",chipTalk:"يتكلم",
+      queued:"أضفت المهمة لطابور التنفيذ — تبدأ فور انتهاء المهمة الحالية.",
       thinking:"النواة تفكر…",
-      planReply:(names)=>`وصلني أمرك يا مدير ✅ حللت المهمة وكلفت الفريق: ${names}. تابعهم الآن مباشرة على اللوحة 👇`,
+      offBadge:"غير متصل",
+      offline:"النواة غير متصلة بالخادم. تأكد أن خدمة rabit-brain شغالة على السيرفر ثم حدّث الصفحة.",
+      planReply:(names)=>`وصلني أمرك يا مدير. حللت المهمة وكلفت الفريق: ${names}. تابعهم الآن مباشرة على اللوحة.`,
       planSay:(names)=>`تم استلام الأمر. كلفت ${names}. بدأ التنفيذ الآن.`,
-      doneReply:(names)=>`اكتملت المهمة يا مدير ✅ الفريق (${names}) أنهى كل التكليفات وسلّم الشغل. جاهزين لأمرك التالي.`,
+      doneReply:(names)=>`اكتملت المهمة يا مدير. الفريق (${names}) أنهى كل التكليفات وسلّم الشغل. جاهزين لأمرك التالي.`,
       doneSay:"يا مدير، اكتملت المهمة بنجاح. الفريق جاهز لأمرك التالي.",
       task:"المهمة الحالية",noTask:"بدون مهمة نشطة"},
   en:{caption:"Tap any agent to watch its live stream",liveFeed:"LIVE STREAM",
       coreStatus:"AI CORE STATUS",central:"Central core",
       agents:"Agents",working:"Working now",
       ask:"Command your company… e.g. build me an online store",
-      voiceNote:"🎙️ Voice requires opening the site over https",
+      voiceNote:"Voice requires opening the site over https",
       listening:"Listening…",dEmpty:"No activity yet — send your company a command",
       stIdle:"Online",stPlan:"Planning",stExec:"Executing",
-      chipWork:"working…",chipDone:"done ✅",chipTalk:"talking",
-      busy:"The team is busy on a mission — your order was queued and runs next ⏳",
-      queued:"Added to the execution queue — starts right after the current mission ⏳",
+      chipWork:"working…",chipDone:"done",chipTalk:"talking",
+      queued:"Added to the execution queue — starts right after the current mission.",
       thinking:"Core is thinking…",
-      planReply:(names)=>`Order received, boss ✅ I analyzed it and assigned: ${names}. Watch them live on the board 👇`,
+      offBadge:"OFFLINE",
+      offline:"The core is not connected to the server. Make sure the rabit-brain service is running, then refresh the page.",
+      planReply:(names)=>`Order received, boss. I analyzed it and assigned: ${names}. Watch them live on the board.`,
       planSay:(names)=>`Order received. I assigned ${names}. Execution starts now.`,
-      doneReply:(names)=>`Mission complete, boss ✅ The team (${names}) finished all assignments. Ready for your next order.`,
+      doneReply:(names)=>`Mission complete, boss. The team (${names}) finished all assignments. Ready for your next order.`,
       doneSay:"Boss, the mission is complete. The team is ready for your next order.",
       task:"Current mission",noTask:"No active mission"}
 };
@@ -273,6 +276,7 @@ function applyLang(){
   btnAR.classList.toggle("on",lang==="ar");btnEN.classList.toggle("on",lang==="en");
   document.querySelectorAll("[data-i18n]").forEach(el=>{const k=el.dataset.i18n;if(I18N[lang][k])el.textContent=I18N[lang][k];});
   document.querySelectorAll("[data-i18n-ph]").forEach(el=>{const k=el.dataset.i18nPh;if(I18N[lang][k])el.placeholder=I18N[lang][k];});
+  if(!LIVE)modeBadge.textContent=T("offBadge");
   setCore(coreMode);
   AGENTS.forEach(updateNode);
 }
@@ -366,6 +370,7 @@ async function probeLive(){
     const j=await r.json().catch(()=>null);
     if(j&&j.ok&&j.brain&&j.brain!=="none"){
       LIVE=true;modeBadge.textContent="LIVE";modeBadge.className="live";
+      setCore(coreMode);wakeBoard();
     }
   }catch(e){}
   stAgents.textContent=AGENTS.length;
@@ -405,7 +410,8 @@ function refreshStats(){
 let coreMode="idle";
 function setCore(m){
   coreMode=m;
-  coreState.textContent=m==="planning"?T("stPlan"):m==="executing"?T("stExec"):T("stIdle");
+  coreState.textContent=!LIVE?T("offBadge")
+    :m==="planning"?T("stPlan"):m==="executing"?T("stExec"):T("stIdle");
 }
 
 /* ================= canvas ================= */
@@ -571,7 +577,6 @@ let voiceOn=true,speakingNow=false;
 const ttsQ=[];
 spkBtn.onclick=()=>{
   voiceOn=!voiceOn;spkBtn.classList.toggle("off",!voiceOn);
-  spkBtn.textContent=voiceOn?"🔊":"🔇";
   if(!voiceOn){ttsQ.length=0;try{speechSynthesis.cancel();}catch(e){}}
 };
 function say(txt,agent){
@@ -669,11 +674,19 @@ function finishMission(names){
   if(cmdQ.length){const q=cmdQ.shift();setTimeout(()=>startMission(q.cmd,q.opts||{}),2000);}
 }
 
-/* ambient life: small random activity so the board never feels dead */
+/* ambient life: small random activity so the board never feels dead.
+   Only runs once the real brain is connected — no fake life while offline */
+let boardAwake=false;
+function wakeBoard(){
+  if(boardAwake)return;boardAwake=true;
+  setTimeout(()=>{feed(byKey.CEO,"▶ Read COMPANY.md");},900);
+  setTimeout(()=>{feed(byKey.PM,"Reviewing the board backlog…");},2600);
+  ambient();
+}
 function ambient(){
   const wait=8000+Math.random()*7000;
   setTimeout(()=>{
-    if(!missionActive){
+    if(!missionActive&&LIVE){
       if(Math.random()<0.65){
         const a=pick(AGENTS.filter(x=>x.status==="idle"||x.status==="done"));
         if(a)runAgent(a,{lines:[pick(a.logs)],endIdle:true});
@@ -754,19 +767,18 @@ async function askBrain(v){
       else startMission(v,{team,quiet:true});
     }else if(!missionActive)setCore("idle");
   }catch(e){
+    /* brain unreachable or unusable response — say so honestly */
     th.remove();
-    /* brain unreachable → fall back to the built-in demo engine */
-    if(missionActive){cmdQ.push({cmd:v});addMsg(T("busy"),false);say(T("busy"));}
-    else startMission(v);
+    addMsg(T("offline"),false);
+    if(!missionActive)setCore("idle");
   }
 }
 
 function send(){
   const v=inp.value.trim();if(!v)return;
   inp.value="";addMsg(v,true);
-  if(LIVE){askBrain(v);return;}
-  if(missionActive){cmdQ.push({cmd:v});addMsg(T("busy"),false);say(T("busy"));return;}
-  setTimeout(()=>startMission(v),500);
+  if(!LIVE){addMsg(T("offline"),false);return;}
+  askBrain(v);
 }
 sendBtn.onclick=send;
 inp.addEventListener("keydown",e=>{if(e.key==="Enter")send();});
@@ -798,10 +810,6 @@ micBtn.onclick=async()=>{
 /* ================= boot ================= */
 buildNodes();applyLang();resize();draw();probeLive();refreshStats();
 setInterval(()=>{if(!LIVE)probeLive();},30000); /* keep trying if the brain comes up later */
-ambient();
-/* a little opening activity so the board is alive on first load */
-setTimeout(()=>{feed(byKey.CEO,"▶ Read COMPANY.md");},900);
-setTimeout(()=>{feed(byKey.PM,"Reviewing the board backlog…");},2600);
 </script>
 </body>
 </html>

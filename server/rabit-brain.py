@@ -61,7 +61,8 @@ Always answer with a single JSON object: {"reply": "...", "team": [...]}
   and mention which employees you assigned. If it's a question or small talk,
   just answer helpfully.
 - team: the agent keys that should execute this order (pick only the relevant
-  ones), or [] when the message is conversation/questions with nothing to execute."""
+  ones), or [] when the message is conversation/questions with nothing to execute.
+Never use emojis or emoticons anywhere in the reply."""
 
 SCHEMA = {
     "type": "object",
@@ -300,7 +301,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not allowed(self._client_ip()):
             self._send(429, {"reply": "وصلنا الحد الأقصى من الطلبات مؤقتًا — "
-                                      "جرب بعد شوي يا مدير ⏳", "team": []})
+                                      "جرب بعد شوي يا مدير.", "team": []})
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
