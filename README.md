@@ -1,14 +1,28 @@
 # SIRA — Autonomous Company OS
 
 A real, self-contained, voice-first multi-agent company operating system.
-An owner speaks (or types) an objective; the CEO agent plans a minimal task
-graph; the owner confirms; specialist agents execute with real tools under
-code-enforced permissions; every claim is verified against persisted
-artifacts; the interface renders only backend truth.
+An owner speaks (or types) an objective — in English or Arabic; the CEO
+agent plans a minimal task graph; the owner confirms; specialist agents
+execute with real tools under code-enforced permissions; every claim is
+verified against persisted artifacts; the interface renders only backend
+truth.
+
+The interface is SIRA itself: a central audio-reactive core surrounded by a
+**neural agent network** — real execution nodes that appear when a real plan
+assigns them, connected by real dependency/handoff/tool edges, animated only
+by persisted events (every pulse carries its event seq). English/LTR is the
+default; Arabic/RTL is a first-class mirror (logical-property CSS, bidi
+isolation for ids/paths). Replies stream token-by-token visibly and start
+speaking at the first complete sentence. Max-4 ranked context cards say why
+they surfaced; Ctrl/Cmd+K opens global search (Ask / Find / Navigate); chat
+is an optional drawer over the same conversation as voice.
 
 Built on **zero runtime dependencies** beyond the official Anthropic SDK:
 Node 22 (`node:sqlite`, `node:test`, native TS type-stripping), a vanilla-JS
-PWA client, and the `claude` CLI for subscription-based model access.
+PWA client, and the `claude` CLI for subscription-based model access. Each
+agent runs on a configurable model tier (fast / balanced / reasoning /
+custom) — lowest-cost capable by default, overridable per agent from the
+agent inspector (audited).
 
 ```
 npm ci
@@ -113,9 +127,29 @@ on measured results, and roll back cleanly (`/api/prompts`, `/api/evals`).
 
 ## Tests
 
-`npm test` — typecheck + 40 unit/integration tests, including all nine
-mandatory acceptance tests (see `tests/integration/`). CI runs the full
-suite plus the mechanical eval tier with no model credentials.
+`npm test` — typecheck + unit/integration suites, including the nine backend
+acceptance tests (worker-kill recovery, malformed output, permission
+boundary, injection, prompt lifecycle, interface truth), streaming
+(delta/cancellation/say extraction), search, model tiers, i18n dictionary
+parity, CSS logical-property lint, and a repo-wide branding scan.
+
+`npm run test:ui` — the nine SIRA interface acceptance tests driven through
+real headless Chromium via a zero-dependency CDP client (`tests/ui/`):
+branding, default-English persistence, full RTL mirroring, mixed-language
+bidi, incremental streaming + stop-with-no-half-answer, barge-in remainder
+preservation, network truth against a real worker (real handoff inspection),
+killed-worker honesty (zero active nodes, zero pulses), and a 9-viewport ×
+2-direction responsive matrix. Skips cleanly when no Chromium is present
+(`SIRA_CHROME_BIN` overrides the binary path); it is not part of `npm test`.
+
+## Migrating from a pre-SIRA install
+
+Everything is automatic: `./scripts/install-sira.sh --services` stops and
+removes old `rabit-*` systemd units before enabling `sira-*` (two workers
+must never share one database), the seed renames the org row, prompt
+re-promotion happens in the installer's eval step, the service worker
+deletes old caches, and the client migrates its storage keys once. If your
+shell profile exported `RABIT_*` variables, rename them to `SIRA_*`.
 
 ## Legacy Paperclip package
 

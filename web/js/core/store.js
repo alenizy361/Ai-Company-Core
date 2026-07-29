@@ -44,10 +44,18 @@ export class BackendStore {
     for (const fn of this.typed.get('*') ?? []) fn(ev);
   }
 
-  /** Honest worker view: heartbeat within 90s, else offline. */
+  /**
+   * Honest worker view. A fresh snapshot is authoritative — the server
+   * derives staleness from real heartbeat rows, and a newer snapshot must
+   * out-vote the client's own heartbeat memory (a SIGKILLed worker emits
+   * nothing; only the server notices).
+   */
   workerFresh() {
-    if (this.lastHeartbeatAt > Date.now() - 90000) return true;
-    return !!this.snapshot?.workerFresh && (this._snapshotAt ?? 0) > Date.now() - 90000;
+    const snapAt = this._snapshotAt ?? 0;
+    if (snapAt > Date.now() - 90000 && snapAt >= this.lastHeartbeatAt) {
+      return !!this.snapshot?.workerFresh;
+    }
+    return this.lastHeartbeatAt > Date.now() - 90000;
   }
 
   runningExecutions() {
@@ -97,8 +105,12 @@ export class BackendStore {
       },
     });
     this.stream.start();
-    // Staleness re-render tick: re-evaluates heartbeat age only.
-    setInterval(() => this._notify(), 15000);
+    // Idle tick: re-poll the snapshot so silent worker death (no events) still
+    // surfaces within one tick, and re-evaluate heartbeat age for rendering.
+    setInterval(() => {
+      this._queueRefresh();
+      this._notify();
+    }, 15000);
   }
 
   _queueRefresh() {

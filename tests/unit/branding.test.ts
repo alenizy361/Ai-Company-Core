@@ -19,6 +19,7 @@ const ALLOWED: Record<string, RegExp> = {
   'tests/unit/branding.test.ts': /.*/, // this file names the patterns it hunts
   'tests/unit/static-guards.test.ts': /rabit|jarvis/i, // ditto
   'tests/unit/i18n-parity.test.ts': /rabit|jarvis/i, // ditto
+  'tests/ui/acceptance.test.ts': /rabit|jarvis/i, // ditto (live-DOM assertions)
 };
 
 function* walk(dir: string): Generator<string> {

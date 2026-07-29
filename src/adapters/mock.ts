@@ -85,13 +85,15 @@ export class MockAdapter implements ModelAdapter {
   async completeStream(req: CompletionRequest, stream: StreamHandle): Promise<CompletionResult> {
     const result = await this.complete(req);
     const CHUNK = 16;
+    const gap = Number(process.env.MOCK_DELTA_DELAY_MS ?? 1);
     for (let i = 0; i < result.text.length; i += CHUNK) {
       if (stream.signal?.aborted) {
         throw new AdapterError('mock', 'stream aborted by caller', false, true);
       }
       stream.onDelta(result.text.slice(i, i + CHUNK));
-      // Yield between chunks so abort has a real window (tunable via MOCK_TURN_DELAY_MS handled in complete()).
-      await new Promise((r) => setTimeout(r, 1));
+      // Yield between chunks so abort has a real window; gap tunable so UI
+      // tests can observe genuine incremental growth.
+      await new Promise((r) => setTimeout(r, gap));
     }
     return result;
   }

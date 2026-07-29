@@ -288,6 +288,9 @@ backend.on('task.status', (ev) => {
 });
 
 /* ---------- boot ---------- */
+// Debug/test handle — read-only introspection of the live stores.
+window.sira = { backend, conversation, voice, get coreState() { return currentCoreState; } };
+
 (async () => {
   document.body.classList.add('booted');
   try {

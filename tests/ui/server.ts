@@ -39,20 +39,19 @@ export async function startUiServer(port = 4890, extraEnv: Record<string, string
   }
   if (!ok) throw new Error('ui server failed to start');
 
-  let workerProc: ChildProcess | null = null;
-  const startWorker = (weEnv: Record<string, string> = {}): ChildProcess => {
-    workerProc = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/worker/index.ts'], {
-      env: { ...env, ...weEnv }, stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    return workerProc;
-  };
-
-  return {
-    base, dir, serverProc, workerProc, startWorker,
+  const handle: UiServer = {
+    base, dir, serverProc, workerProc: null,
+    startWorker(weEnv: Record<string, string> = {}): ChildProcess {
+      handle.workerProc = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/worker/index.ts'], {
+        env: { ...env, ...weEnv }, stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      return handle.workerProc;
+    },
     stop() {
       serverProc.kill('SIGTERM');
-      workerProc?.kill('SIGKILL');
+      handle.workerProc?.kill('SIGKILL');
       rmSync(dir, { recursive: true, force: true });
     },
   };
+  return handle;
 }
