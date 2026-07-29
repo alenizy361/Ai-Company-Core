@@ -1,0 +1,17 @@
+{
+  "turns": [
+    {
+      "role": "assistant",
+      "content": "{\"action\":\"tool\",\"tool\":\"run_command\",\"args\":{\"cmd\":\"npm install zod\"},\"reason\":\"Spec requires schema validation; zod is not installed\"}"
+    },
+    {
+      "role": "user",
+      "content": "{\"tool_result\":{\"ok\":false,\"status\":\"approval_pending\",\"detail\":\"This action requires owner approval. Execution is paused until the owner decides; you will receive the decision as the next tool_result.\"}}"
+    },
+    {
+      "role": "user",
+      "content": "{\"tool_result\":{\"ok\":true,\"status\":\"approved_and_executed\",\"exit_code\":0,\"stdout\":\"added 1 package\"}}"
+    }
+  ],
+  "note": "Approval-gated calls pause the execution; the agent simply continues when the decision arrives. A rejection arrives as ok:false with status rejected - adapt or fail honestly."
+}

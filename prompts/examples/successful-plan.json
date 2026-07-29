@@ -1,0 +1,65 @@
+{
+  "reply": "سأجهّز صفحة تسجيل الاهتمام: مواصفة من مدير المنتج، تنفيذ من مهندس الواجهات، ثم فحص الجودة. ثلاث مهام متسلسلة.",
+  "team": ["pm", "frontend", "qa"],
+  "plan": [
+    {
+      "step_id": "spec-signup-page",
+      "agent": "pm",
+      "title": "Specify the interest signup page",
+      "spec": "Write an implementation-ready spec for a single 'register interest' page: target user (Arabic-first small business owners), fields (name, email, company size), validation rules, success/error states, RTL layout requirement, and the exact copy in Arabic and English. Base the flow on the existing web/ structure (inspect it first).",
+      "depends_on": [],
+      "required_inputs": [],
+      "expected_artifacts": ["signup-page-spec.md"],
+      "acceptance_criteria": [
+        "Spec defines every field with validation rules",
+        "All four UI states (default, loading, success, error) specified",
+        "Copy provided in both ar and en"
+      ],
+      "verification": [
+        { "type": "artifact_exists", "artifact": "signup-page-spec.md" },
+        { "type": "contains", "artifact": "signup-page-spec.md", "needle": "error" }
+      ],
+      "priority": 1,
+      "status": "queued"
+    },
+    {
+      "step_id": "implement-signup-page",
+      "agent": "frontend",
+      "title": "Implement the signup page per spec",
+      "spec": "Implement the page exactly per signup-page-spec.md in web/, reusing the existing styles and i18n mechanism. Wire the form to POST /api/interest (backend already exposes it), with real loading/error/success states driven by the response. Run the build and include its output.",
+      "depends_on": ["spec-signup-page"],
+      "required_inputs": ["signup-page-spec.md"],
+      "expected_artifacts": ["signup-implementation-notes.md"],
+      "acceptance_criteria": [
+        "Form states driven by real API responses only",
+        "Build command succeeds with output captured",
+        "RTL rendering rules from the spec applied"
+      ],
+      "verification": [
+        { "type": "artifact_exists", "artifact": "signup-implementation-notes.md" },
+        { "type": "command", "cmd": "npm run build", "expect_exit": 0 }
+      ],
+      "priority": 2,
+      "status": "queued"
+    },
+    {
+      "step_id": "qa-signup-page",
+      "agent": "qa",
+      "title": "Verify signup page against spec",
+      "spec": "Test the implemented page against every acceptance criterion in signup-page-spec.md: run the test suite, exercise validation rules and all four states, verify the API contract handling including error responses. Record raw command output per criterion in the QA report.",
+      "depends_on": ["implement-signup-page"],
+      "required_inputs": ["signup-page-spec.md", "signup-implementation-notes.md"],
+      "expected_artifacts": ["signup-qa-report.md"],
+      "acceptance_criteria": [
+        "Every spec criterion has an executed-evidence verdict",
+        "All failures include reproduction steps"
+      ],
+      "verification": [
+        { "type": "artifact_exists", "artifact": "signup-qa-report.md" },
+        { "type": "contains", "artifact": "signup-qa-report.md", "needle": "PASS" }
+      ],
+      "priority": 3,
+      "status": "queued"
+    }
+  ]
+}

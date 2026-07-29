@@ -55,9 +55,13 @@ CREATE TABLE objectives (
   status TEXT NOT NULL DEFAULT 'open'
     CHECK (status IN ('open','planning','plan_proposed','in_progress','completed','failed','cancelled')),
   conversation_id TEXT,
+  claimed_by TEXT,
+  lease_expires_at INTEGER,
+  replan_count INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 ) STRICT;
+CREATE INDEX idx_objectives_claim ON objectives(status);
 
 CREATE TABLE plans (
   id TEXT PRIMARY KEY,

@@ -9,13 +9,16 @@ import { SseHub } from './sse.ts';
 import { serveStatic } from './static.ts';
 import { registerStateRoutes } from './routes/state.ts';
 import { registerReadRoutes } from './routes/reads.ts';
+import { registerWriteRoutes } from './routes/writes.ts';
 import { registerHealthRoute, type AdapterInfo } from './routes/health.ts';
 import { describeAdapterSelection } from '../adapters/select.ts';
+import { seedPromptsFromDisk } from '../promptreg/registry.ts';
 
 const paths = loadPaths();
 const cfg = loadSystemConfig();
 const db = openDb(paths.dbPath, paths.migrationsDir);
 seedOrgAndAgents(db);
+seedPromptsFromDisk(db, paths.promptsDir);
 
 const hub = new SseHub(db, cfg.ssePollMs);
 const router = new Router();
@@ -29,6 +32,7 @@ function getAdapterInfo(): AdapterInfo {
 registerHealthRoute(router, db, hub, cfg, getAdapterInfo);
 registerStateRoutes(router, db, hub, cfg);
 registerReadRoutes(router, db);
+registerWriteRoutes(router, db);
 
 const ownerToken = process.env.OWNER_TOKEN ?? '';
 

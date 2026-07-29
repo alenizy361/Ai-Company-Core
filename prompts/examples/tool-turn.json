@@ -1,0 +1,17 @@
+{
+  "turns": [
+    {
+      "role": "assistant",
+      "content": "{\"action\":\"tool\",\"tool\":\"read_artifact\",\"args\":{\"name\":\"signup-page-spec.md\"},\"reason\":\"Read the PM spec before implementing\"}"
+    },
+    {
+      "role": "user",
+      "content": "{\"tool_result\":{\"ok\":true,\"name\":\"signup-page-spec.md\",\"content\":\"# Signup page spec\\n...\"}}"
+    },
+    {
+      "role": "assistant",
+      "content": "{\"action\":\"tool\",\"tool\":\"write_file\",\"args\":{\"path\":\"web/signup.html\",\"content\":\"<!doctype html>...\"},\"reason\":\"Create the page skeleton per spec section 2\"}"
+    }
+  ],
+  "note": "One JSON action per turn; tool results come back as data in the next user message."
+}
