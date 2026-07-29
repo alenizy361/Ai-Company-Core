@@ -16,7 +16,7 @@
   body{
     background:var(--bg);color:var(--text);overflow-x:hidden;
     font-family:-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;
-    padding-bottom:calc(120px + env(safe-area-inset-bottom,0px));
+    padding-bottom:calc(130px + env(safe-area-inset-bottom,0px));
   }
   /* ============ header ============ */
   header{
@@ -28,7 +28,7 @@
     background:var(--card);color:var(--text);display:grid;place-items:center;
     font-size:18px;cursor:pointer;flex:none
   }
-  header h1{font-size:17px;font-weight:800;letter-spacing:.2px;white-space:nowrap}
+  header h1{font-size:16px;font-weight:800;letter-spacing:.2px;white-space:nowrap}
   .spacer{flex:1}
   .seg{
     display:flex;align-items:center;border:1px solid var(--line);border-radius:999px;
@@ -39,10 +39,6 @@
     padding:8px 14px;border-radius:999px;cursor:pointer
   }
   .seg button.on{background:#22c55e;color:#032012}
-  .logout{
-    border:1px solid var(--line);background:var(--card);color:var(--text);
-    border-radius:14px;padding:11px 14px;font-size:12px;font-weight:700;cursor:pointer;flex:none
-  }
   /* ============ board card ============ */
   .board{
     margin:10px 12px;background:linear-gradient(180deg,#0a0f22,#080c1a);
@@ -63,21 +59,58 @@
     border:2.5px solid var(--rc,var(--gray));
     box-shadow:0 0 18px color-mix(in srgb,var(--rc,var(--gray)) 55%,transparent),
                inset 0 0 14px rgba(0,0,0,.65);
+    animation:floaty 5s ease-in-out infinite;
   }
   .agent.big .bubble{width:64px;height:64px;font-size:14px}
-  .agent.hot .bubble{box-shadow:0 0 26px color-mix(in srgb,var(--rc) 85%,transparent),inset 0 0 14px rgba(0,0,0,.6);animation:pulse 1.5s ease-in-out infinite,floaty 4.5s ease-in-out infinite}
-  .agent .bubble{animation:floaty 5s ease-in-out infinite}
-  @keyframes pulse{50%{box-shadow:0 0 38px color-mix(in srgb,var(--rc) 100%,transparent)}}
+  .agent.working .bubble{
+    animation:pulse 1.1s ease-in-out infinite,floaty 4.5s ease-in-out infinite;
+    box-shadow:0 0 30px color-mix(in srgb,var(--rc) 90%,transparent),inset 0 0 14px rgba(0,0,0,.6);
+  }
+  .agent.talking .bubble{
+    animation:talkring .8s ease-in-out infinite,floaty 4.5s ease-in-out infinite;
+  }
+  @keyframes pulse{50%{box-shadow:0 0 44px color-mix(in srgb,var(--rc) 100%,transparent)}}
+  @keyframes talkring{
+    0%,100%{box-shadow:0 0 22px color-mix(in srgb,var(--rc) 80%,transparent),0 0 0 0 rgba(255,255,255,.5)}
+    50%{box-shadow:0 0 34px color-mix(in srgb,var(--rc) 100%,transparent),0 0 0 9px rgba(255,255,255,0)}
+  }
   @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
   .chip{
     font-size:10px;font-weight:800;letter-spacing:.4px;padding:3px 10px;border-radius:999px;
     background:rgba(74,222,128,.13);color:var(--green);border:1px solid rgba(74,222,128,.35);
-    white-space:nowrap;max-width:96px;overflow:hidden;text-overflow:ellipsis
+    white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis
   }
   .chip.amber{background:rgba(251,191,36,.13);color:var(--amber);border-color:rgba(251,191,36,.4)}
-  .caption{
-    text-align:center;color:var(--dim);font-size:12px;padding:12px 16px 16px
+  .chip.violet{background:rgba(177,140,255,.13);color:var(--violet);border-color:rgba(177,140,255,.4)}
+  .chip.hide{display:none}
+  .caption{text-align:center;color:var(--dim);font-size:12px;padding:12px 16px 16px}
+  #modeBadge{position:absolute;top:12px;inset-inline-start:14px;z-index:6;
+    font-size:9px;padding:4px 10px;border-radius:999px;font-weight:800;letter-spacing:1.5px}
+  #modeBadge.live{background:rgba(74,222,128,.15);color:var(--green);border:1px solid rgba(74,222,128,.4)}
+  #modeBadge.demo{background:rgba(251,191,36,.12);color:var(--amber);border:1px solid rgba(251,191,36,.4)}
+  /* ============ live feed ============ */
+  .panel{
+    margin:14px 12px;background:var(--card);border:1px solid var(--line);
+    border-radius:20px;overflow:hidden
   }
+  .phead{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--line)}
+  .phead b{font-size:12px;letter-spacing:2.5px;color:var(--dim);font-weight:800}
+  .reddot{width:8px;height:8px;border-radius:50%;background:var(--red);animation:blink 1s infinite}
+  @keyframes blink{50%{opacity:.2}}
+  #feedBox{max-height:300px;min-height:140px;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:6px;
+    background:#070a16}
+  .fline{display:flex;align-items:flex-start;gap:8px;direction:ltr;text-align:left}
+  .abadge{
+    flex:none;min-width:36px;text-align:center;font-size:9px;font-weight:800;letter-spacing:.5px;
+    padding:3px 6px;border-radius:7px;color:var(--c,#9aa4d6);
+    border:1px solid color-mix(in srgb,var(--c,#9aa4d6) 45%,transparent);
+    background:color-mix(in srgb,var(--c,#9aa4d6) 10%,transparent);margin-top:2px
+  }
+  .ftext{font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.7;color:#b7c1ff;word-break:break-word}
+  .ftext .tool{color:var(--amber);font-weight:700}
+  .ftext .ok{color:var(--green);font-weight:700}
+  .ftext .say{color:#e8ecff;font-style:italic}
+  .cursor{display:inline-block;width:7px;height:12px;background:var(--cyan);vertical-align:-2px;animation:blink .7s infinite}
   /* ============ status section ============ */
   .secTitle{margin:18px 16px 8px;font-size:13px;font-weight:800;letter-spacing:3px;color:var(--dim)}
   .srow{
@@ -99,16 +132,14 @@
   #drawer.open{transform:none}
   .grab{width:44px;height:4px;border-radius:4px;background:var(--line);margin:0 auto 14px}
   .dhead{display:flex;align-items:center;gap:12px;margin-bottom:10px}
-  .dhead .bubble{width:48px;height:48px;font-size:12px}
+  .dhead .bubble{width:48px;height:48px;font-size:12px;animation:none}
   #dTitle{font-size:16px;font-weight:800}
   #dRole{font-size:11px;color:var(--dim)}
   .livebadge{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:var(--red)}
   .livebadge::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--red);animation:blink 1s infinite}
-  @keyframes blink{50%{opacity:.2}}
-  #dStream{display:flex;flex-direction:column;gap:6px;margin-top:10px}
-  .sline{font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.6;color:#b7c1ff;
-    background:#070a16;border:1px solid var(--line);border-radius:10px;padding:8px 10px;direction:ltr;text-align:left}
-  .sline .tool{color:var(--amber);font-weight:700}
+  #dStream{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+  #dStream .fline{background:#070a16;border:1px solid var(--line);border-radius:10px;padding:7px 9px}
+  #dEmpty{color:var(--dim);font-size:12px;text-align:center;padding:18px 0}
   /* ============ chat dock ============ */
   #dock{
     position:fixed;z-index:35;inset-inline:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));
@@ -117,7 +148,7 @@
   }
   #msgs{max-height:34vh;overflow:auto;display:none;flex-direction:column;gap:8px;padding:4px 2px 10px}
   #msgs.open{display:flex}
-  .msg{max-width:82%;padding:9px 13px;border-radius:16px;font-size:13px;line-height:1.5}
+  .msg{max-width:84%;padding:9px 13px;border-radius:16px;font-size:13px;line-height:1.55}
   .msg.me{align-self:flex-end;background:linear-gradient(135deg,var(--cyan),#0ea5c9);color:#04121a;border-end-end-radius:4px;font-weight:600}
   .msg.ai{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-end-start-radius:4px}
   html[dir="rtl"] .msg.me{align-self:flex-start}
@@ -130,12 +161,9 @@
     background:var(--card);color:var(--text);font-size:18px;cursor:pointer;display:grid;place-items:center}
   .rbtn.primary{background:var(--cyan);color:#04121a;border-color:var(--cyan)}
   .rbtn.mic.on{background:var(--red);border-color:var(--red);color:#fff;animation:blink 1.2s infinite}
+  .rbtn.spk.off{opacity:.4}
   .rbtn:disabled{opacity:.35}
   #voiceNote{font-size:10px;color:var(--dim);text-align:center;padding-top:6px;display:none}
-  #modeBadge{position:absolute;top:12px;inset-inline-start:14px;z-index:6;
-    font-size:9px;padding:4px 10px;border-radius:999px;font-weight:800;letter-spacing:1.5px}
-  #modeBadge.live{background:rgba(74,222,128,.15);color:var(--green);border:1px solid rgba(74,222,128,.4)}
-  #modeBadge.demo{background:rgba(251,191,36,.12);color:var(--amber);border:1px solid rgba(251,191,36,.4)}
 </style>
 </head>
 <body>
@@ -145,22 +173,26 @@
   <h1>Rabit AI Company OS</h1>
   <div class="spacer"></div>
   <div class="seg">
-    <button id="btnAR">AR</button>
-    <button id="btnEN" class="on">EN</button>
+    <button id="btnAR" class="on">AR</button>
+    <button id="btnEN">EN</button>
   </div>
-  <button class="logout" data-i18n="logout">Log out</button>
 </header>
 
 <div class="board">
   <span id="modeBadge" class="demo">DEMO</span>
   <div id="stage"><canvas id="space"></canvas><div id="nodes"></div></div>
-  <div class="caption" data-i18n="caption">Click any agent on the board to see what it's saying and doing</div>
+  <div class="caption" data-i18n="caption">اضغط على أي موظف لتشاهد بثّه المباشر</div>
 </div>
 
-<div class="secTitle" data-i18n="coreStatus">AI CORE STATUS</div>
-<div class="srow"><span data-i18n="central">Central core</span><b id="coreState" data-i18n="planning">Planning</b></div>
-<div class="srow"><span data-i18n="agents">Agents</span><span class="g" id="stAgents">11</span></div>
-<div class="srow"><span data-i18n="working">Working now</span><span class="a" id="stWorking">6</span></div>
+<div class="panel">
+  <div class="phead"><span class="reddot"></span><b data-i18n="liveFeed">LIVE STREAM</b><div class="spacer"></div><b id="feedCount" style="letter-spacing:0">0</b></div>
+  <div id="feedBox"></div>
+</div>
+
+<div class="secTitle" data-i18n="coreStatus">حالة النواة</div>
+<div class="srow"><span data-i18n="central">النواة المركزية</span><b id="coreState">—</b></div>
+<div class="srow"><span data-i18n="agents">الموظفون</span><span class="g" id="stAgents">11</span></div>
+<div class="srow"><span data-i18n="working">يعملون الآن</span><span class="a" id="stWorking">0</span></div>
 
 <div id="ov"></div>
 <div id="drawer">
@@ -176,69 +208,145 @@
   </div>
   <span class="chip" id="dTask">—</span>
   <div id="dStream"></div>
+  <div id="dEmpty" data-i18n="dEmpty">لا يوجد نشاط بعد — أرسل أمرًا للشركة</div>
 </div>
 
 <div id="dock">
   <div id="msgs"></div>
   <div id="dockRow">
     <button class="rbtn mic" id="micBtn" title="voice">🎙️</button>
-    <input id="inp" data-i18n-ph="ask" placeholder="Command your company…" autocomplete="off">
+    <button class="rbtn spk" id="spkBtn" title="sound">🔊</button>
+    <input id="inp" data-i18n-ph="ask" placeholder="مُر شركتك… مثلاً: سوّوا لي متجر إلكتروني" autocomplete="off">
     <button class="rbtn primary" id="sendBtn">➤</button>
   </div>
-  <div id="voiceNote" data-i18n="voiceNote">🎙️ Voice requires opening the site over https</div>
+  <div id="voiceNote" data-i18n="voiceNote">🎙️ الصوت يتطلب فتح الموقع عبر https</div>
 </div>
 
 <script>
+/* ================================================================
+   Rabit AI Company OS — interactive neural command center
+   - voice in (SpeechRecognition) + voice out (speechSynthesis queue)
+   - command engine: core analyzes an order, assigns a team,
+     agents light up, stream their work live and ping each other
+   ================================================================ */
+
 /* ================= i18n ================= */
 const I18N={
-  ar:{logout:"تسجيل الخروج",caption:"اضغط على أي موظف لتشاهد ماذا يقول ويفعل",
-      coreStatus:"حالة النواة",central:"النواة المركزية",planning:"يخطط",
-      agents:"الموظفون",working:"يعملون الآن",ask:"اكتب أمرًا لشركتك…",
+  ar:{caption:"اضغط على أي موظف لتشاهد بثّه المباشر",liveFeed:"البث المباشر",
+      coreStatus:"حالة النواة",central:"النواة المركزية",
+      agents:"الموظفون",working:"يعملون الآن",
+      ask:"مُر شركتك… مثلاً: سوّوا لي متجر إلكتروني",
       voiceNote:"🎙️ الصوت يتطلب فتح الموقع عبر https",
-      demoReply:"وصلني أمرك يا مدير ✅ (وضع العرض — عند الربط بالسيرفر أنفّذ فعليًا وأكلف الفريق).",
-      listening:"أستمع إليك…",task:"المهمة: بناء بوابة القيادة"},
-  en:{logout:"Log out",caption:"Click any agent on the board to see what it's saying and doing",
-      coreStatus:"AI CORE STATUS",central:"Central core",planning:"Planning",
-      agents:"Agents",working:"Working now",ask:"Command your company…",
+      listening:"أستمع إليك…",dEmpty:"لا يوجد نشاط بعد — أرسل أمرًا للشركة",
+      stIdle:"جاهزة",stPlan:"تخطط",stExec:"تنفّذ",
+      chipWork:"يعمل…",chipDone:"تم ✅",chipTalk:"يتكلم",
+      busy:"الفريق مشغول بمهمة حالية — أضفت أمرك للطابور وسننفذه بعدها مباشرة ⏳",
+      planReply:(names)=>`وصلني أمرك يا مدير ✅ حللت المهمة وكلفت الفريق: ${names}. تابعهم الآن مباشرة على اللوحة 👇`,
+      planSay:(names)=>`تم استلام الأمر. كلفت ${names}. بدأ التنفيذ الآن.`,
+      doneReply:(names)=>`اكتملت المهمة يا مدير ✅ الفريق (${names}) أنهى كل التكليفات وسلّم الشغل. جاهزين لأمرك التالي.`,
+      doneSay:"يا مدير، اكتملت المهمة بنجاح. الفريق جاهز لأمرك التالي.",
+      task:"المهمة الحالية",noTask:"بدون مهمة نشطة"},
+  en:{caption:"Tap any agent to watch its live stream",liveFeed:"LIVE STREAM",
+      coreStatus:"AI CORE STATUS",central:"Central core",
+      agents:"Agents",working:"Working now",
+      ask:"Command your company… e.g. build me an online store",
       voiceNote:"🎙️ Voice requires opening the site over https",
-      demoReply:"Command received ✅ (demo mode — connect me to the server to execute for real).",
-      listening:"Listening…",task:"Task: build the command portal"}
+      listening:"Listening…",dEmpty:"No activity yet — send your company a command",
+      stIdle:"Online",stPlan:"Planning",stExec:"Executing",
+      chipWork:"working…",chipDone:"done ✅",chipTalk:"talking",
+      busy:"The team is busy on a mission — your order was queued and runs next ⏳",
+      planReply:(names)=>`Order received, boss ✅ I analyzed it and assigned: ${names}. Watch them live on the board 👇`,
+      planSay:(names)=>`Order received. I assigned ${names}. Execution starts now.`,
+      doneReply:(names)=>`Mission complete, boss ✅ The team (${names}) finished all assignments. Ready for your next order.`,
+      doneSay:"Boss, the mission is complete. The team is ready for your next order.",
+      task:"Current mission",noTask:"No active mission"}
 };
-let lang="en";
+let lang="ar";
+function T(k){return I18N[lang][k];}
 function applyLang(){
   document.documentElement.lang=lang;
   document.documentElement.dir=lang==="ar"?"rtl":"ltr";
   btnAR.classList.toggle("on",lang==="ar");btnEN.classList.toggle("on",lang==="en");
   document.querySelectorAll("[data-i18n]").forEach(el=>{const k=el.dataset.i18n;if(I18N[lang][k])el.textContent=I18N[lang][k];});
   document.querySelectorAll("[data-i18n-ph]").forEach(el=>{const k=el.dataset.i18nPh;if(I18N[lang][k])el.placeholder=I18N[lang][k];});
+  setCore(coreMode);
+  AGENTS.forEach(updateNode);
 }
 btnAR.onclick=()=>{lang="ar";applyLang();};
 btnEN.onclick=()=>{lang="en";applyLang();};
 
-/* ================= roster (matches the reference board) ================= */
-/* pos = % of stage. ring/text colors + chips mirror the screenshot */
-let AGENTS=[
-  {key:"CEO",x:50,y:7.5, ring:"#34d399",tc:"#b18cff",chip:"done",big:1,hot:1,bolt:"#b18cff",ar:"الرئيس التنفيذي",en:"CEO"},
-  {key:"FE", x:24,y:14,  ring:"#38e1ff",tc:"#38e1ff",chip:"done",hot:1,bolt:"#38e1ff",ar:"مهندس الواجهات",en:"Frontend"},
-  {key:"QA", x:75,y:15.5,ring:"#34d399",tc:"#38e1ff",chip:"done",hot:1,bolt:"#38e1ff",ar:"مراقب الجودة",en:"QA"},
-  {key:"BE", x:15,y:33,  ring:"#38e1ff",tc:"#38e1ff",chip:"done",hot:1,bolt:"#38e1ff",ar:"مهندس الأنظمة",en:"Backend"},
-  {key:"SEC",x:85,y:37.5,ring:"#fb7185",tc:"#fb7185",chip:null, ar:"مسؤول الأمن",en:"Security"},
-  {key:"DB", x:14,y:55,  ring:"#38e1ff",tc:"#38e1ff",chip:"done",hot:1,bolt:"#38e1ff",ar:"مهندس البيانات",en:"Database"},
-  {key:"AN", x:85,y:58,  ring:"#34d399",tc:"#34d399",chip:null, ar:"محلل البيانات",en:"Analytics"},
-  {key:"UX", x:17,y:74,  ring:"#60a5fa",tc:"#60a5fa",chip:null, ar:"مصمم التجربة",en:"UX"},
-  {key:"MKT",x:83,y:76,  ring:"#34d399",tc:"#34d399",chip:null, ar:"مدير التسويق",en:"Marketing"},
-  {key:"PM", x:31,y:90,  ring:"#fbbf24",tc:"#60a5fa",chip:"command r…",chipCls:"amber",hot:1,bolt:"#38e1ff",ar:"مدير المشاريع",en:"PM"},
-  {key:"FIN",x:69,y:91,  ring:"#fbbf24",tc:"#fbbf24",chip:null, ar:"المدير المالي",en:"Finance"},
+/* ================= roster ================= */
+/* pos = % of stage; every agent has its own voice pitch, work-log pool
+   and short spoken lines so they each feel like a different person */
+const AGENTS=[
+  {key:"CEO",x:50,y:7.5, ring:"#34d399",tc:"#b18cff",big:1,pitch:.8,
+   ar:"الرئيس التنفيذي",en:"CEO",
+   logs:['▶ Read COMPANY.md','Reviewing the order against company goals…','▶ Read agents/*/AGENTS.md','✔ Approved — dispatching to PM'],
+   says:{ar:["تمت الموافقة على المهمة، نفّذوا فورًا","المهمة معتمدة، بالتوفيق للفريق"],en:["Mission approved, execute immediately","Approved. Good luck, team"]}},
+  {key:"PM", x:31,y:90, ring:"#fbbf24",tc:"#60a5fa",pitch:1.15,
+   ar:"مدير المشاريع",en:"Project Manager",
+   logs:['▶ Write plan.md (+38 lines)','Breaking the mission into tasks…','▶ Assign RAB-12 → FE','▶ Assign RAB-13 → BE','▶ Assign RAB-14 → QA','Tracking progress across the board…','✔ All tasks dispatched'],
+   says:{ar:["وزعت المهام على الفريق يا مدير","الخطة جاهزة والتنفيذ بدأ"],en:["Tasks assigned to the team, boss","Plan is ready, execution started"]}},
+  {key:"FE", x:24,y:14, ring:"#38e1ff",tc:"#38e1ff",pitch:1.05,
+   ar:"مهندس الواجهات",en:"Frontend",
+   logs:['▶ Write src/pages/index.tsx (+214)','▶ Bash npm run build','Polishing the hero section…','▶ Write src/components/Navbar.tsx (+96)','Wiring the UI to the API…','✔ UI build passed'],
+   says:{ar:["خلصت الواجهة يا مدير","الصفحة صارت تجنن، جربها"],en:["Frontend is done, boss","The page looks great, try it"]}},
+  {key:"QA", x:75,y:15.5,ring:"#34d399",tc:"#38e1ff",pitch:1.25,
+   ar:"مراقب الجودة",en:"QA",
+   logs:['▶ Bash playwright test — 28/28 ✓','Hunting edge cases…','▶ Bash npm run lint — clean','Re-testing on mobile viewport…','✔ No blocking bugs found'],
+   says:{ar:["فحصت كل شي، ما فيه أخطاء","الجودة ممتازة، أعتمدها"],en:["Everything tested, zero bugs","Quality is excellent, approved"]}},
+  {key:"BE", x:15,y:33, ring:"#38e1ff",tc:"#38e1ff",pitch:.9,
+   ar:"مهندس الأنظمة",en:"Backend",
+   logs:['▶ Write api/server.ts (+180)','Designing REST endpoints…','▶ Bash npm test — 34 passed','▶ Write api/auth.ts (+72)','Deploying to staging…','✔ API live on staging'],
+   says:{ar:["السيرفر جاهز وشغال","الـ API صار حي، اربطوا عليه"],en:["Server is up and running","API is live, hook into it"]}},
+  {key:"SEC",x:85,y:37.5,ring:"#fb7185",tc:"#fb7185",pitch:.75,
+   ar:"مسؤول الأمن",en:"Security",
+   logs:['▶ Bash trivy scan — running…','Checking auth flows for leaks…','▶ Read api/auth.ts','Rotating exposed keys…','✔ 0 critical vulnerabilities'],
+   says:{ar:["الفحص الأمني سليم، ما فيه ثغرات","أمّنت كل المداخل يا مدير"],en:["Security scan is clean","All entry points secured, boss"]}},
+  {key:"DB", x:14,y:55, ring:"#38e1ff",tc:"#38e1ff",pitch:.95,
+   ar:"مهندس البيانات",en:"Database",
+   logs:['▶ Write schema.sql (+66)','Optimizing slow indexes…','▶ Bash prisma migrate deploy','Backing up before migration…','✔ Schema migrated cleanly'],
+   says:{ar:["قاعدة البيانات جاهزة","رحّلت البيانات بدون أي فقد"],en:["Database is ready","Migration finished with zero loss"]}},
+  {key:"AN", x:85,y:58, ring:"#34d399",tc:"#34d399",pitch:1.1,
+   ar:"محلل البيانات",en:"Analytics",
+   logs:['▶ Query events last 30d','Building the funnel report…','▶ Write report.md (+52)','Segmenting users by cohort…','✔ Insights ready for review'],
+   says:{ar:["طلعت لك الأرقام والتحليل","التقرير جاهز، الأرقام إيجابية"],en:["Numbers and analysis are out","Report ready — metrics look good"]}},
+  {key:"UX", x:17,y:74, ring:"#60a5fa",tc:"#60a5fa",pitch:1.2,
+   ar:"مصمم التجربة",en:"UX Designer",
+   logs:['▶ Figma export wireframes','Choosing the color system…','▶ Write tokens.css (+40)','Testing the flow with 5 users…','✔ Design tokens handed to FE'],
+   says:{ar:["التصميم جاهز وسلمته للواجهات","اخترت هوية ألوان فخمة"],en:["Design done and handed to FE","Picked a premium color identity"]}},
+  {key:"MKT",x:83,y:76, ring:"#34d399",tc:"#34d399",pitch:1.3,
+   ar:"مدير التسويق",en:"Marketing",
+   logs:['▶ Draft campaign copy v2','A/B testing headlines…','▶ Schedule posts (7 days)','Negotiating influencer rates…','✔ Campaign scheduled'],
+   says:{ar:["الحملة جاهزة ومجدولة","المحتوى التسويقي انطلق"],en:["Campaign ready and scheduled","Marketing content is live"]}},
+  {key:"FIN",x:69,y:91, ring:"#fbbf24",tc:"#fbbf24",pitch:.85,
+   ar:"المدير المالي",en:"Finance",
+   logs:['▶ Compute budget forecast','Reviewing vendor costs…','▶ Write budget.xlsx','Flagging 2 savings opportunities…','✔ Budget approved & filed'],
+   says:{ar:["الميزانية معتمدة يا مدير","وفرت لك في التكاليف"],en:["Budget approved, boss","Found you some cost savings"]}},
 ];
-const DEMO_STREAM=[
-  '<span class="tool">▶ Read</span> COMPANY.md',
-  '<span class="tool">▶ Bash</span> paperclipai issue list --status in_progress',
-  'Analyzing current workload across the team…',
-  '<span class="tool">▶ Write</span> /paperclip/site/index.html (+214 lines)',
-  '<span class="tool">▶ Bash</span> curl -s $PAPERCLIP_API_URL/api/agents',
-  'Drafting summary for the owner…',
-  '<span class="tool">▶ Comment</span> posted to task RAB-7',
+const byKey=Object.fromEntries(AGENTS.map(a=>[a.key,a]));
+
+/* which agents get pulled for which kind of order */
+const TEAM_RULES=[
+  {re:/موقع|صفح|متجر|واجه|تصميم|هوية|site|web|page|store|landing|design|brand/i, team:["UX","FE","BE","QA"]},
+  {re:/تطبيق|ابلكيشن|أبلكيشن|app\b|mobile/i, team:["UX","FE","BE","DB","QA"]},
+  {re:/تسويق|حمل|اعلان|إعلان|سوشال|منشور|market|campaign|\bads?\b|social|post/i, team:["MKT","AN","FIN"]},
+  {re:/تقرير|تحليل|بيانات|احصائ|إحصائ|أرقام|report|analy|data|insight|metric/i, team:["AN","DB","FIN"]},
+  {re:/امن|أمن|اختراق|ثغر|حماية|secur|vuln|pentest|hack|audit/i, team:["SEC","BE","QA"]},
+  {re:/مالي|ميزاني|فلوس|تكلف|فاتور|financ|budget|cost|invoice|price/i, team:["FIN","AN"]},
+  {re:/قاعدة|داتا\s?بيس|database|sql|schema|migrat/i, team:["DB","BE","QA"]},
 ];
+function pickTeam(cmd){
+  for(const r of TEAM_RULES)if(r.re.test(cmd))return r.team.slice();
+  return ["FE","BE","AN"];
+}
+
+/* short agent-to-agent pings shown on the wire + feed */
+const PINGS={
+  ar:["أحتاج منك رابط الـ API","استلمت، أكمل من عندي","تشيّك على آخر تحديث رفعته","نسّق معي قبل التسليم","أرسلت لك الملفات، راجعها"],
+  en:["I need the API endpoint from you","Got it, taking over from here","Check the update I just pushed","Sync with me before delivery","Sent you the files, review them"]
+};
+const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
 
 /* ================= live probe ================= */
 let LIVE=false;
@@ -246,12 +354,9 @@ async function probeLive(){
   try{
     const r=await fetch("/api/health",{signal:AbortSignal.timeout(2500)});
     if(!r.ok)throw 0;
-    LIVE=true;
-    modeBadge.textContent="LIVE";modeBadge.className="live";
-    coreState.textContent=lang==="ar"?"متصل":"Online";
+    LIVE=true;modeBadge.textContent="LIVE";modeBadge.className="live";
   }catch(e){}
   stAgents.textContent=AGENTS.length;
-  stWorking.textContent=AGENTS.filter(a=>a.hot).length;
 }
 
 /* ================= build nodes ================= */
@@ -260,21 +365,40 @@ function buildNodes(){
   nodesEl.innerHTML="";
   for(const a of AGENTS){
     const el=document.createElement("div");
-    el.className="agent"+(a.big?" big":"")+(a.hot?" hot":"");
+    el.className="agent"+(a.big?" big":"");
     el.style.setProperty("--rc",a.ring);el.style.setProperty("--tc",a.tc);
     el.style.left=a.x+"%";el.style.top=a.y+"%";
-    el.innerHTML=`<div class="bubble">${a.key}</div>`+
-      (a.chip?`<span class="chip ${a.chipCls||""}">${a.chip}</span>`:``);
+    el.innerHTML=`<div class="bubble">${a.key}</div><span class="chip hide"></span>`;
     el.onclick=()=>openDrawer(a);
     el.querySelector(".bubble").style.animationDelay=(Math.random()*3).toFixed(2)+"s";
     nodesEl.appendChild(el);
-    a.el=el;
+    a.el=el;a.chipEl=el.querySelector(".chip");
+    a.status="idle";a.buf=[];a.timers=[];
   }
+}
+function updateNode(a){
+  a.el.classList.toggle("working",a.status==="working");
+  a.el.classList.toggle("talking",a.status==="talking");
+  const c=a.chipEl;
+  if(a.status==="working"){c.className="chip amber";c.textContent=T("chipWork");}
+  else if(a.status==="talking"){c.className="chip violet";c.textContent=T("chipTalk");}
+  else if(a.status==="done"){c.className="chip";c.textContent=T("chipDone");}
+  else c.className="chip hide";
+}
+function refreshStats(){
+  stWorking.textContent=AGENTS.filter(a=>a.status==="working"||a.status==="talking").length;
+}
+
+/* ================= core state ================= */
+let coreMode="idle";
+function setCore(m){
+  coreMode=m;
+  coreState.textContent=m==="planning"?T("stPlan"):m==="executing"?T("stExec"):T("stIdle");
 }
 
 /* ================= canvas ================= */
 const cv=document.getElementById("space"),ctx=cv.getContext("2d");
-let W,H,CX,CY,R,stars=[],mesh=[];
+let W,H,CX,CY,R,stars=[],mesh=[],interLinks=[];
 let voiceAmp=0,speakAmp=0,t=0,boltSeed=0;
 function resize(){
   W=cv.width=stage.clientWidth*devicePixelRatio;
@@ -287,7 +411,7 @@ function resize(){
 function nodePx(a){return{x:a.x/100*W,y:a.y/100*H};}
 /* jagged electric bolt */
 function bolt(x1,y1,x2,y2,color,seed){
-  const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy),steps=Math.max(5,Math.floor(len/(34*devicePixelRatio)));
+  const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1,steps=Math.max(5,Math.floor(len/(34*devicePixelRatio)));
   const nx=-dy/len,ny=dx/len;
   let px=x1,py=y1;
   ctx.strokeStyle=color;ctx.shadowColor=color;ctx.shadowBlur=14*devicePixelRatio;
@@ -315,18 +439,23 @@ function draw(){
   ctx.globalAlpha=1;
   const amp=1+Math.sin(t*2)*0.025+voiceAmp*0.4+speakAmp*0.2;
   const r=R*amp;
-  /* bolts (behind core) */
+  /* bolts to active agents (behind core) */
   for(const a of AGENTS){
-    if(!a.bolt)continue;
+    const active=a.status==="working"||a.status==="talking";
     const p=nodePx(a);
-    const ang=Math.atan2(p.y-CY,p.x-CX);
-    bolt(CX+Math.cos(ang)*r*1.05,CY+Math.sin(ang)*r*1.0,p.x,p.y,a.bolt,boltSeed+a.x);
+    if(active){
+      const ang=Math.atan2(p.y-CY,p.x-CX);
+      bolt(CX+Math.cos(ang)*r*1.05,CY+Math.sin(ang)*r*1.0,p.x,p.y,a.ring,boltSeed+a.x);
+    }else{
+      ctx.strokeStyle=a.ring;ctx.globalAlpha=0.13;ctx.lineWidth=1*devicePixelRatio;
+      ctx.beginPath();ctx.moveTo(CX,CY);ctx.lineTo(p.x,p.y);ctx.stroke();ctx.globalAlpha=1;
+    }
   }
-  /* faint lines to passive nodes */
-  for(const a of AGENTS){
-    if(a.bolt)continue;const p=nodePx(a);
-    ctx.strokeStyle=a.ring;ctx.globalAlpha=0.14;ctx.lineWidth=1*devicePixelRatio;
-    ctx.beginPath();ctx.moveTo(CX,CY);ctx.lineTo(p.x,p.y);ctx.stroke();ctx.globalAlpha=1;
+  /* agent-to-agent link bolts */
+  interLinks=interLinks.filter(l=>(l.ttl-=0.016)>0);
+  for(const l of interLinks){
+    const p1=nodePx(l.a),p2=nodePx(l.b);
+    bolt(p1.x,p1.y,p2.x,p2.y,l.color,boltSeed+l.a.x+l.b.y);
   }
   /* platform ellipses under core */
   ctx.strokeStyle="rgba(56,225,255,0.35)";
@@ -381,27 +510,187 @@ function draw(){
 }
 addEventListener("resize",()=>{resize();});
 
+/* ================= live feed (streaming lines) ================= */
+const feedBox=document.getElementById("feedBox");
+let feedN=0;
+function colorize(txt){
+  return txt
+    .replace(/^(▶ \S+)/,'<span class="tool">$1</span>')
+    .replace(/^(✔ .*)$/,'<span class="ok">$1</span>');
+}
+function feed(a,text,opts={}){
+  feedN++;feedCount.textContent=feedN;
+  const line=document.createElement("div");line.className="fline";
+  line.innerHTML=`<span class="abadge" style="--c:${a.ring}">${a.key}</span><span class="ftext"></span>`;
+  const span=line.querySelector(".ftext");
+  const stick=feedBox.scrollHeight-feedBox.scrollTop-feedBox.clientHeight<60;
+  feedBox.appendChild(line);
+  while(feedBox.children.length>45)feedBox.firstChild.remove();
+  if(stick)feedBox.scrollTop=feedBox.scrollHeight;
+  /* typewriter stream */
+  let i=0;
+  const cur=document.createElement("span");cur.className="cursor";span.after(cur);
+  const type=()=>{
+    if(i<text.length){
+      span.textContent=text.slice(0,++i);
+      if(stick)feedBox.scrollTop=feedBox.scrollHeight;
+      setTimeout(type,10+Math.random()*22);
+    }else{
+      cur.remove();
+      span.innerHTML=opts.quote?`<span class="say">“${text}”</span>`:colorize(text);
+      pushToBuf(a,line.innerHTML);
+    }
+  };
+  type();
+}
+function pushToBuf(a,html){
+  a.buf.push(html);if(a.buf.length>30)a.buf.shift();
+  if(openAgent===a){
+    const l=document.createElement("div");l.className="fline";l.innerHTML=html;
+    dStream.appendChild(l);
+    while(dStream.children.length>30)dStream.firstChild.remove();
+    dEmpty.style.display="none";
+    dStream.scrollTop=dStream.scrollHeight;
+  }
+}
+
+/* ================= voice out (queued, per-agent pitch) ================= */
+let voiceOn=true,speakingNow=false;
+const ttsQ=[];
+spkBtn.onclick=()=>{
+  voiceOn=!voiceOn;spkBtn.classList.toggle("off",!voiceOn);
+  spkBtn.textContent=voiceOn?"🔊":"🔇";
+  if(!voiceOn){ttsQ.length=0;try{speechSynthesis.cancel();}catch(e){}}
+};
+function say(txt,agent){
+  if(!voiceOn||!("speechSynthesis" in window))return;
+  ttsQ.push({txt,agent});pumpTTS();
+}
+function pumpTTS(){
+  if(speakingNow||!ttsQ.length)return;
+  speakingNow=true;
+  const {txt,agent}=ttsQ.shift();
+  const u=new SpeechSynthesisUtterance(txt);
+  u.lang=/[؀-ۿ]/.test(txt)?"ar-SA":"en-US";
+  u.rate=1.04;u.pitch=agent?agent.pitch:1;
+  let prev=null;
+  if(agent&&agent.status!=="working"){prev=agent.status;agent.status="talking";updateNode(agent);refreshStats();}
+  const iv=setInterval(()=>{speakAmp=0.55+Math.random()*0.45;},120);
+  const done=()=>{
+    clearInterval(iv);
+    if(agent&&agent.status==="talking"){agent.status=prev==="done"?"done":prev||"idle";updateNode(agent);refreshStats();}
+    speakingNow=false;setTimeout(pumpTTS,220);
+  };
+  u.onend=done;u.onerror=done;
+  try{speechSynthesis.speak(u);}catch(e){done();}
+}
+
+/* ================= agent engine ================= */
+let missionActive=false;
+const cmdQ=[];
+function stopAgent(a){a.timers.forEach(clearTimeout);a.timers=[];}
+function after(a,ms,fn){a.timers.push(setTimeout(fn,ms));}
+function ping(a,b){
+  interLinks.push({a,b,ttl:2.4,color:a.ring});
+  feed(a,`${a.key} → ${b.key}: ${pick(PINGS[lang])}`);
+}
+/* run one agent through a burst of streamed work */
+function runAgent(a,opts={}){
+  stopAgent(a);
+  a.status="working";updateNode(a);refreshStats();
+  const lines=opts.lines||a.logs.slice(0,4+Math.floor(Math.random()*2));
+  let i=0,delay=350;
+  const step=()=>{
+    if(i<lines.length){
+      feed(a,lines[i++]);
+      after(a,900+Math.random()*1200,step);
+    }else{
+      a.status=opts.endIdle?"idle":"done";updateNode(a);refreshStats();
+      if(opts.sayDone)say(pick(a.says[lang]),a);
+      opts.onDone&&opts.onDone(a);
+    }
+  };
+  after(a,delay,step);
+  /* mid-work ping to a teammate */
+  if(opts.pingPool&&opts.pingPool.length&&Math.random()<0.85){
+    after(a,2200+Math.random()*3200,()=>{
+      if(a.status!=="working")return;
+      const others=opts.pingPool.filter(k=>k!==a.key);
+      if(others.length)ping(a,byKey[pick(others)]);
+    });
+  }
+}
+
+/* full mission: CEO approves → PM assigns → team executes in parallel */
+function startMission(cmd){
+  missionActive=true;setCore("planning");
+  const teamKeys=pickTeam(cmd);
+  const names=teamKeys.map(k=>lang==="ar"?byKey[k].ar:byKey[k].en).join(lang==="ar"?"، ":", ");
+  addMsg(T("planReply")(names),false);
+  say(T("planSay")(names));
+  /* reset previous done states */
+  AGENTS.forEach(a=>{if(a.status==="done"){a.status="idle";updateNode(a);}});
+  feed(byKey.CEO,`▶ Order: "${cmd.slice(0,60)}"`);
+  runAgent(byKey.CEO,{lines:byKey.CEO.logs,sayDone:true,onDone:()=>{
+    interLinks.push({a:byKey.CEO,b:byKey.PM,ttl:2.4,color:byKey.CEO.ring});
+    runAgent(byKey.PM,{lines:byKey.PM.logs,sayDone:true,pingPool:teamKeys,onDone:()=>{
+      setCore("executing");
+      let doneCount=0;
+      teamKeys.forEach((k,idx)=>{
+        setTimeout(()=>{
+          runAgent(byKey[k],{sayDone:true,pingPool:teamKeys,onDone:()=>{
+            if(++doneCount===teamKeys.length)finishMission(names);
+          }});
+        },idx*1500);
+      });
+    }});
+  }});
+}
+function finishMission(names){
+  setCore("idle");
+  feed(byKey.CEO,"✔ Mission complete — report delivered to the owner");
+  addMsg(T("doneReply")(names),false);
+  say(T("doneSay"));
+  missionActive=false;
+  if(cmdQ.length)setTimeout(()=>startMission(cmdQ.shift()),2000);
+}
+
+/* ambient life: small random activity so the board never feels dead */
+function ambient(){
+  const wait=8000+Math.random()*7000;
+  setTimeout(()=>{
+    if(!missionActive){
+      if(Math.random()<0.65){
+        const a=pick(AGENTS.filter(x=>x.status==="idle"||x.status==="done"));
+        if(a)runAgent(a,{lines:[pick(a.logs)],endIdle:true});
+      }else{
+        const pool=AGENTS.filter(x=>x.status!=="working");
+        const a=pick(pool),b=pick(pool.filter(x=>x!==a));
+        if(a&&b)ping(a,b);
+      }
+    }
+    ambient();
+  },wait);
+}
+
 /* ================= drawer ================= */
-let streamTimer=null;
+let openAgent=null;
 function openDrawer(a){
+  openAgent=a;
   dBubble.textContent=a.key;
   dBubble.style.setProperty("--rc",a.ring);dBubble.style.setProperty("--tc",a.tc);
   dTitle.textContent=lang==="ar"?a.ar:a.en;
-  dRole.textContent=a.en+(a.chip?" • "+a.chip:"");
-  dTask.textContent=I18N[lang].task;
-  dLive.style.display=a.hot?"inline-flex":"none";
-  dStream.innerHTML="";let i=0;
-  clearInterval(streamTimer);
-  const put=()=>{
-    const l=document.createElement("div");l.className="sline";
-    l.innerHTML=DEMO_STREAM[i%DEMO_STREAM.length];i++;
-    dStream.appendChild(l);while(dStream.children.length>9)dStream.firstChild.remove();
-  };
-  put();put();
-  streamTimer=setInterval(put,1400);
+  dRole.textContent=a.en;
+  dTask.textContent=missionActive?T("task"):T("noTask");
+  dLive.style.display=(a.status==="working"||a.status==="talking")?"inline-flex":"none";
+  dStream.innerHTML="";
+  if(a.buf.length){
+    dEmpty.style.display="none";
+    a.buf.forEach(h=>{const l=document.createElement("div");l.className="fline";l.innerHTML=h;dStream.appendChild(l);});
+  }else dEmpty.style.display="block";
   ov.classList.add("open");drawer.classList.add("open");
 }
-ov.onclick=()=>{ov.classList.remove("open");drawer.classList.remove("open");clearInterval(streamTimer);};
+ov.onclick=()=>{ov.classList.remove("open");drawer.classList.remove("open");openAgent=null;};
 
 /* ================= chat ================= */
 function addMsg(txt,me){
@@ -409,24 +698,16 @@ function addMsg(txt,me){
   const el=document.createElement("div");el.className="msg "+(me?"me":"ai");el.textContent=txt;
   msgs.appendChild(el);msgs.scrollTop=msgs.scrollHeight;
 }
-function speak(txt){
-  try{
-    const u=new SpeechSynthesisUtterance(txt);
-    u.lang=/[؀-ۿ]/.test(txt)?"ar-SA":"en-US";u.rate=1.02;
-    const iv=setInterval(()=>{speakAmp=0.6+Math.random()*0.4;},120);
-    u.onend=()=>clearInterval(iv);
-    speechSynthesis.speak(u);
-  }catch(e){}
-}
 function send(){
   const v=inp.value.trim();if(!v)return;
   inp.value="";addMsg(v,true);
-  setTimeout(()=>{const r=I18N[lang].demoReply;addMsg(r,false);speak(r);},700);
+  if(missionActive){cmdQ.push(v);addMsg(T("busy"),false);say(T("busy"));return;}
+  setTimeout(()=>startMission(v),500);
 }
 sendBtn.onclick=send;
 inp.addEventListener("keydown",e=>{if(e.key==="Enter")send();});
 
-/* ================= voice ================= */
+/* ================= voice in ================= */
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let rec=null,recOn=false,audioCtx=null;
 if(!window.isSecureContext||!SR){micBtn.disabled=true;voiceNote.style.display="block";}
@@ -440,7 +721,7 @@ micBtn.onclick=async()=>{
     const loop=()=>{if(!recOn)return;an.getByteFrequencyData(buf);
       voiceAmp=Math.min(1,(buf.reduce((s,x)=>s+x,0)/buf.length)/70);requestAnimationFrame(loop);};
     rec=new SR();rec.lang=lang==="ar"?"ar-SA":"en-US";rec.interimResults=true;
-    recOn=true;micBtn.classList.add("on");inp.placeholder=I18N[lang].listening;loop();
+    recOn=true;micBtn.classList.add("on");inp.placeholder=T("listening");loop();
     rec.onresult=e=>{let s="";for(const r of e.results)s+=r[0].transcript;inp.value=s;};
     rec.onend=()=>{recOn=false;micBtn.classList.remove("on");
       stream.getTracks().forEach(tr=>tr.stop());applyLang();
@@ -451,7 +732,11 @@ micBtn.onclick=async()=>{
 };
 
 /* ================= boot ================= */
-applyLang();buildNodes();resize();draw();probeLive();
+buildNodes();applyLang();resize();draw();probeLive();refreshStats();
+ambient();
+/* a little opening activity so the board is alive on first load */
+setTimeout(()=>{feed(byKey.CEO,"▶ Read COMPANY.md");},900);
+setTimeout(()=>{feed(byKey.PM,"Reviewing the board backlog…");},2600);
 </script>
 </body>
 </html>
