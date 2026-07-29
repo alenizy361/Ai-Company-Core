@@ -1,0 +1,38 @@
+/* SIRA design tokens — single source for color/space/type. Dark, spatial,
+   calm. All component CSS consumes these variables. */
+:root {
+  --bg: #060913;
+  --bg-elev: #0a0f1f;
+  --bg-elev2: #0d1326;
+  --bg-input: #070a16;
+  --line: #1b2340;
+  --line-strong: #2a3560;
+  --text: #e8ecff;
+  --dim: #8b93c4;
+  --accent: #38e1ff;      /* SIRA cyan — identity color */
+  --accent-deep: #0ea5c9;
+  --violet: #b18cff;      /* generation/speech */
+  --green: #4ade80;       /* listening/success */
+  --amber: #fbbf24;       /* attention/approval */
+  --red: #fb7185;         /* failure */
+  --gray: #64748b;        /* offline/muted */
+
+  --radius-s: 10px;
+  --radius-m: 14px;
+  --radius-l: 22px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+
+  --fs-xs: 10px;
+  --fs-s: 12px;
+  --fs-m: 14px;
+  --fs-l: 16px;
+
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+  --overlay: rgba(3, 4, 10, 0.6);
+  --tap-target: 44px;
+}

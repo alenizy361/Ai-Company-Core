@@ -1,11 +1,13 @@
-// VoiceSessionManager: wires capture -> STT -> /api/converse (SSE) -> TTS,
-// with barge-in and turn-level latency metrics. Providers are pluggable; the
-// browser-native set is the working fallback until external provider keys are
-// configured server-side (see /api/health voiceProviders).
+// VoiceSessionManager: capture -> STT -> /api/converse (SSE) -> TTS, with
+// streaming deltas, barge-in, stoppable generation, hold-to-talk and
+// continuous mode. Providers are pluggable; browser-native is the working
+// fallback until external provider keys exist server-side.
 import { VoiceStateStore } from './session-store.js';
 import { AudioCapture } from './capture.js';
 import { WebSpeechSTT } from './stt.js';
 import { SpeechSynthesisTTS } from './tts.js';
+import { prefs } from '../core/prefs.js';
+import { isArabic } from '../i18n/bidi.js';
 
 async function* sseStream(response) {
   const reader = response.body.getReader();
@@ -32,23 +34,33 @@ async function* sseStream(response) {
 
 export class VoiceController {
   constructor(ui) {
-    this.ui = ui; // {onTranscript, onReply, onRoute, onError, onStateChange}
+    // ui: {onTranscript, onDelta, onReply, onRoute, onError({key,params}), onStateChange, onGenerating(bool)}
+    this.ui = ui;
     this.store = new VoiceStateStore();
     this.capture = new AudioCapture(this.store);
     this.stt = new WebSpeechSTT(this.store);
     this.tts = new SpeechSynthesisTTS(this.store);
-    this.conversationId = localStorage.getItem('rabit.conversationId') || null;
-    this.lang = localStorage.getItem('rabit.lang') || 'ar';
+    this.conversationId = prefs.get('conversationId') || null;
+    this.lang = prefs.get('lang') || 'en';
     this.busy = false;
+    this.holding = false;
+    this.continuous = prefs.bool('continuous');
+    this.abortCtrl = null;
     this.tts.onRemainder = (unspoken) => ui.onReply?.(`… ${unspoken}`, { interrupted: true });
-    this.store.subscribe((state, from) => ui.onStateChange?.(state, from));
+    this.store.subscribe((state, from) => {
+      ui.onStateChange?.(state, from);
+      // Continuous mode: after real playback drains back to ready, re-listen.
+      if (this.continuous && state === 'ready' && from === 'speaking' && !this.capture.muted) {
+        setTimeout(() => {
+          if (this.store.state === 'ready') void this.talk();
+        }, 150);
+      }
+    });
   }
 
   async init() {
     try {
       await this.store.openSession();
-      // Provider selection is driven by the server's honest provider matrix:
-      // external providers only when their keys are configured server-side.
       try {
         const health = await (await fetch('/api/health')).json();
         const active = health.voiceProviders ?? {};
@@ -67,13 +79,28 @@ export class VoiceController {
     }
   }
 
-  /** Combined input level for the orb: real mic while listening, real playback while speaking. */
   amplitude() {
     return Math.max(this.capture.amplitude(), this.tts.amplitude());
   }
 
   get state() {
     return this.store.state;
+  }
+
+  setContinuous(on) {
+    this.continuous = on;
+    prefs.setBool('continuous', on);
+    this.reportMode(on ? 'continuous' : 'push_to_talk');
+  }
+
+  reportMode(mode) {
+    if (!this.store.session) return;
+    fetch(`/api/voice-session/${this.store.session.id}/mode`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode, token: this.store.session.token }),
+      keepalive: true,
+    }).catch(() => {});
   }
 
   toggleMute() {
@@ -85,7 +112,25 @@ export class VoiceController {
     return this.capture.muted;
   }
 
-  /** Tap-to-talk. If RABIT is speaking, this is the barge-in. */
+  /** Stop an in-flight generation (the Stop control). */
+  stopGeneration() {
+    this.abortCtrl?.abort();
+    this.tts.interrupt();
+  }
+
+  /** Hold-to-talk: pointer held = capture window. */
+  holdStart() {
+    this.holding = true;
+    this.reportMode('hold');
+    void this.talk();
+  }
+
+  holdEnd() {
+    this.holding = false;
+    this.stt.stop?.();
+  }
+
+  /** Tap-to-talk. If SIRA is speaking, this is the barge-in. */
   async talk() {
     if (this.capture.muted) return;
     const t0 = performance.now();
@@ -111,8 +156,7 @@ export class VoiceController {
           this.store.reportMetrics([{ metric: 'stt_turn', value_ms: performance.now() - sttStart }]);
         }
       } else {
-        // Degradation: STT or mic unavailable -> typed input remains available.
-        this.ui.onError?.(this.stt.available ? 'microphone unavailable — type instead' : 'speech recognition unavailable in this browser — type instead');
+        this.ui.onError?.({ key: this.stt.available ? 'error.micUnavailable' : 'error.sttUnavailable' });
         if (this.store.state === 'listening') this.store.transition('ready', 'capture');
         return;
       }
@@ -131,15 +175,18 @@ export class VoiceController {
 
   /** Shared by voice turns and the typed chat drawer (same conversation). */
   async sendText(text, modality, t0 = performance.now()) {
+    this.abortCtrl = new AbortController();
+    this.ui.onGenerating?.(true);
     let response;
     try {
       response = await fetch('/api/converse', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
+        signal: this.abortCtrl.signal,
         body: JSON.stringify({
           text,
           modality,
-          lang: /[؀-ۿ]/.test(text) ? 'ar' : 'en',
+          lang: isArabic(text) ? 'ar' : 'en',
           conversationId: this.conversationId,
           voiceSessionId: this.store.session?.id,
           voiceToken: this.store.session?.token,
@@ -147,22 +194,32 @@ export class VoiceController {
       });
       if (!response.ok || !response.body) throw new Error(`converse ${response.status}`);
     } catch (err) {
+      this.ui.onGenerating?.(false);
+      if (this.abortCtrl.signal.aborted) {
+        if (['thinking', 'creating_plan'].includes(this.store.state)) this.store.mirror('ready');
+        return { aborted: true };
+      }
       this.store.transition('offline', 'transport');
-      this.ui.onError?.(`backend unreachable: ${err.message}`, { preserveText: text });
-      return;
+      this.ui.onError?.({ key: 'error.backendUnreachable', params: { detail: err.message }, preserveText: text });
+      return {};
     }
 
     let firstSayAt = null;
+    let deltaText = '';
     let fullSay = '';
+    let aborted = false;
     try {
       for await (const { event, data } of sseStream(response)) {
-        if (event === 'say') {
+        if (event === 'delta') {
+          deltaText += data.text;
+          this.ui.onDelta?.(deltaText);
+        } else if (event === 'say') {
           if (firstSayAt === null) {
             firstSayAt = performance.now();
             this.store.reportMetrics([{ metric: 'first_say', value_ms: firstSayAt - t0 }]);
           }
           fullSay += (fullSay ? ' ' : '') + data.text;
-          this.ui.onReply?.(fullSay, {});
+          if (!deltaText) this.ui.onDelta?.(fullSay); // non-streaming adapters
           if (modality === 'voice' && this.tts.available && !this.capture.muted) this.tts.enqueue(data.text);
         } else if (event === 'state') {
           this.store.mirror(data.state);
@@ -170,18 +227,27 @@ export class VoiceController {
           this.ui.onRoute?.(data);
         } else if (event === 'meta') {
           this.conversationId = data.conversationId;
-          localStorage.setItem('rabit.conversationId', this.conversationId);
+          prefs.set('conversationId', this.conversationId);
+        } else if (event === 'done') {
+          this.ui.onReply?.(data.say ?? deltaText ?? fullSay, { done: true });
         } else if (event === 'error') {
-          this.ui.onError?.(`${data.message} (ref ${data.reference})`);
+          this.ui.onError?.({ key: 'error.modelUnavailable', params: { reference: data.reference ?? '' } });
         }
       }
     } catch (err) {
-      this.store.transition('reconnecting', 'transport');
-      this.ui.onError?.(`stream interrupted: ${err.message}`);
+      if (this.abortCtrl.signal.aborted) {
+        aborted = true;
+      } else {
+        this.store.transition('reconnecting', 'transport');
+        this.ui.onError?.({ key: 'error.streamInterrupted', params: { detail: err.message } });
+      }
+    } finally {
+      this.ui.onGenerating?.(false);
     }
     if (['thinking', 'creating_plan'].includes(this.store.state)) this.store.mirror('ready');
-    if (modality === 'voice' && fullSay) {
+    if (modality === 'voice' && fullSay && !aborted) {
       this.store.reportMetrics([{ metric: 'e2e_turn', value_ms: performance.now() - t0 }]);
     }
+    return { aborted, say: fullSay || deltaText };
   }
 }

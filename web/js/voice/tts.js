@@ -10,13 +10,21 @@ export class SpeechSynthesisTTS {
     this.currentText = '';
     this.spokenChars = 0;
     this.onRemainder = null;
+    this.onBoundary = null; // (charIndex) => void — REAL word boundaries
     this.available = 'speechSynthesis' in window;
-    this.envelope = 0; // synthetic output level, nonzero ONLY while really playing
-    this._tick = null;
+    this._boundaryAt = 0;
   }
 
+  /**
+   * speechSynthesis exposes no output level, so the ONLY honest per-moment
+   * signal is the real word-boundary event: amplitude decays from each real
+   * onboundary instead of a fabricated oscillator. Fish Audio replaces this
+   * with a true AnalyserNode level.
+   */
   amplitude() {
-    return this.playing ? this.envelope : 0;
+    if (!this.playing) return 0;
+    const since = performance.now() - this._boundaryAt;
+    return Math.max(0, 0.7 - since / 400);
   }
 
   enqueue(text) {
@@ -41,24 +49,21 @@ export class SpeechSynthesisTTS {
     this.spokenChars = 0;
     utterance.onstart = () => {
       this.playing = true;
+      this._boundaryAt = performance.now();
       this.store.transition('speaking', 'playback');
-      clearInterval(this._tick);
-      this._tick = setInterval(() => {
-        this.envelope = 0.5 + Math.abs(Math.sin(Date.now() / 130)) * 0.5;
-      }, 60);
     };
     utterance.onboundary = (e) => {
-      if (typeof e.charIndex === 'number') this.spokenChars = e.charIndex;
+      if (typeof e.charIndex === 'number') {
+        this.spokenChars = e.charIndex;
+        this._boundaryAt = performance.now();
+        this.onBoundary?.(e.charIndex);
+      }
     };
     utterance.onend = () => {
-      clearInterval(this._tick);
-      this.envelope = 0;
       this.playing = false;
       this._next();
     };
     utterance.onerror = () => {
-      clearInterval(this._tick);
-      this.envelope = 0;
       this.playing = false;
       this.store.transition('failed', 'tts');
     };
@@ -70,8 +75,6 @@ export class SpeechSynthesisTTS {
     const startedAt = performance.now();
     const remainder = this.playing ? this.currentText.slice(this.spokenChars) : '';
     const pendingQueue = this.queue.splice(0);
-    clearInterval(this._tick);
-    this.envelope = 0;
     try { speechSynthesis.cancel(); } catch { /* nothing playing */ }
     const wasPlaying = this.playing;
     this.playing = false;

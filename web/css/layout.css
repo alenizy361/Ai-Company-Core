@@ -1,0 +1,233 @@
+/* App shell. Mobile-first; breakpoints at 768 / 1024 / 1280. The layout is
+   built entirely from logical properties so RTL mirrors by construction. */
+body { display: flex; flex-direction: column; }
+
+#banner {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: 50;
+  background: rgba(251, 191, 36, 0.95);
+  color: #1a1200;
+  font-size: var(--fs-s);
+  font-weight: 700;
+  padding: var(--space-2) var(--space-4);
+  text-align: center;
+  display: none;
+}
+#banner.visible { display: block; }
+
+header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  z-index: 5;
+  flex-wrap: wrap;
+}
+header h1 { font-size: var(--fs-l); font-weight: 800; letter-spacing: 0.5px; }
+.spacer { flex: 1; }
+
+/* ---- center stage: core canvas + network SVG + live text ---- */
+#stage { position: relative; flex: 1; min-block-size: 0; }
+#core { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; }
+#network {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  z-index: 2;
+}
+#syncWarn {
+  position: absolute;
+  inset-block-start: var(--space-3);
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  background: rgba(251, 113, 133, 0.14);
+  border: 1px solid rgba(251, 113, 133, 0.5);
+  color: var(--red);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+#syncWarn[hidden] { display: none; }
+
+#centerText {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 4%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding-inline: var(--space-5);
+  pointer-events: none;
+  text-align: center;
+  z-index: 3;
+}
+#voiceState {
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 2.5px;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+#transcriptLine {
+  font-size: 15px;
+  min-block-size: 22px;
+  max-inline-size: 640px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#replyLine {
+  font-size: 13px;
+  color: var(--dim);
+  max-inline-size: 640px;
+  max-block-size: 60px;
+  overflow: hidden;
+  pointer-events: auto;
+}
+#replyLine.expanded { max-block-size: 30vh; overflow: auto; }
+#execLine { font-size: 11px; color: var(--accent); min-block-size: 16px; }
+
+/* ---- context cards rail ---- */
+#cards {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  overflow-x: auto;
+  z-index: 4;
+  scroll-snap-type: x proximity;
+}
+#cards:empty { display: none; }
+#cards > * { scroll-snap-align: start; flex: 0 0 min(300px, 82vw); }
+
+/* ---- bottom controls ---- */
+#controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) calc(20px + env(safe-area-inset-bottom, 0px));
+  z-index: 5;
+}
+
+/* ---- drawers: bottom sheets on mobile ---- */
+.ov {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  z-index: 40;
+  opacity: 0;
+  pointer-events: none;
+}
+.ov.open { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed;
+  z-index: 41;
+  inset-inline: 0;
+  inset-block-end: 0;
+  max-block-size: 82vh;
+  overflow: auto;
+  background: var(--bg-elev2);
+  border-block-start: 1px solid var(--line);
+  border-start-start-radius: var(--radius-l);
+  border-start-end-radius: var(--radius-l);
+  transform: translateY(105%);
+  padding: var(--space-4) var(--space-4) calc(24px + env(safe-area-inset-bottom, 0px));
+}
+.drawer.open { transform: none; }
+.grab { inline-size: 44px; block-size: 4px; border-radius: 4px; background: var(--line); margin: 0 auto var(--space-3); }
+.drawer h2 {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--dim);
+  margin-block: var(--space-4) var(--space-2);
+  text-transform: uppercase;
+}
+.drawer h2:first-of-type { margin-block-start: 0; }
+
+/* ---- inspector panel ---- */
+#inspector {
+  position: fixed;
+  z-index: 45;
+  inset-inline-end: 0;
+  inset-block: 0;
+  inline-size: min(420px, 100vw);
+  background: var(--bg-elev2);
+  border-inline-start: 1px solid var(--line);
+  transform: translateX(var(--panel-off, 105%));
+  overflow: auto;
+  padding: var(--space-4);
+}
+html[dir="rtl"] #inspector { --panel-dir: -1; }
+#inspector.open { transform: none; }
+
+/* ---- palette ---- */
+#paletteOv { z-index: 60; }
+#palette {
+  position: fixed;
+  z-index: 61;
+  inset-block-start: 12vh;
+  inset-inline-start: 50%;
+  transform: translateX(-50%) scale(0.98);
+  inline-size: min(620px, 92vw);
+  max-block-size: 64vh;
+  display: none;
+  flex-direction: column;
+  background: var(--bg-elev2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+#palette.open { display: flex; transform: translateX(-50%) scale(1); }
+
+/* ---- desktop: side drawers + wider stage ---- */
+@media (min-width: 768px) {
+  .drawer {
+    inset-inline-start: auto;
+    inset-inline-end: 0;
+    inset-block: 0;
+    inline-size: min(440px, 46vw);
+    max-block-size: none;
+    border-start-start-radius: 0;
+    border-start-end-radius: 0;
+    border-inline-start: 1px solid var(--line);
+    transform: translateX(calc(105% * var(--flip, 1)));
+  }
+  html[dir="rtl"] .drawer { --flip: -1; }
+  .drawer.open { transform: none; }
+  .grab { display: none; }
+  #cards { padding-inline: var(--space-5); }
+}
+
+@media (min-width: 1280px) {
+  #stage { display: block; }
+  #cards {
+    position: absolute;
+    inset-inline-end: var(--space-5);
+    inset-block-start: 76px;
+    inline-size: 320px;
+    flex-direction: column;
+    overflow: visible;
+    padding: 0;
+    max-block-size: calc(100vh - 220px);
+    overflow-y: auto;
+    z-index: 8;
+  }
+  #cards > * { flex: 0 0 auto; }
+}
+
+/* RTL flip for the transform-based inspector (translateX is physical). */
+html[dir="rtl"] #inspector {
+  inset-inline-end: 0;
+  transform: translateX(-105%);
+}
+html[dir="rtl"] #inspector.open { transform: none; }

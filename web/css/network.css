@@ -1,0 +1,42 @@
+/* Neural agent network (SVG). Nodes and edges are focusable buttons; pulses
+   are event-driven dots (motion rules live in motion.css). */
+#network .edge {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.2;
+  opacity: 0.65;
+}
+#network .edge.dependency { stroke-dasharray: 5 4; }
+#network .edge.handoff { stroke: var(--violet); }
+#network .edge.verification { stroke: var(--green); }
+#network .edge.assignment { stroke: var(--accent); opacity: 0.4; }
+#network .edge-hit { fill: none; stroke: transparent; stroke-width: 16; cursor: pointer; }
+#network .edge-hit:focus-visible + .edge { stroke: var(--accent); opacity: 1; }
+
+#network .node { cursor: pointer; }
+#network .node circle.body { fill: var(--bg-elev2); stroke: var(--line-strong); stroke-width: 1.4; }
+#network .node.running circle.body, #network .node.verifying circle.body { stroke: var(--accent); }
+#network .node.waiting_for_approval circle.body, #network .node.blocked circle.body,
+#network .node.queued circle.body, #network .node.waiting_for_dependency circle.body,
+#network .node.waiting_for_tool circle.body { stroke: var(--amber); }
+#network .node.failed circle.body { stroke: var(--red); }
+#network .node.offline circle.body, #network .node.not_configured circle.body { stroke: var(--gray); opacity: 0.7; }
+#network .node.completed circle.body { stroke: var(--green); }
+#network .node text.short { fill: var(--text); font-size: 11px; font-weight: 800; text-anchor: middle; }
+#network .node text.status { fill: var(--dim); font-size: 8px; text-anchor: middle; letter-spacing: 0.5px; }
+#network .node:focus-visible circle.body { stroke: var(--accent); stroke-width: 2.4; }
+
+#network .minidot circle { fill: var(--line-strong); }
+#network .minidot { cursor: pointer; opacity: 0.7; }
+
+#network .pulse { fill: var(--accent); }
+#network .edge.pulse-static { stroke: var(--accent); opacity: 1; stroke-width: 2.2; }
+#network .pulse.handoff { fill: var(--violet); }
+#network .pulse.tool { fill: var(--amber); }
+#network .pulse.artifact { fill: var(--green); }
+
+#network .toolbadge { fill: var(--amber); font-size: 8px; text-anchor: middle; }
+
+@media (max-width: 767px) {
+  #network .minidot { display: none; }
+}

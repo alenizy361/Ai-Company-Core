@@ -1,0 +1,30 @@
+/* ALL animation/transition lives here, so reduced-motion is one override.
+   Both the OS preference and the in-app toggle (html[data-reduced-motion])
+   zero every motion; canvas/SVG JS checks motionAllowed() separately. */
+.ov { transition: opacity 0.25s; }
+.drawer { transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+#inspector { transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+#palette { transition: transform 0.15s ease-out; }
+.card { transition: border-color 0.2s; }
+#network .edge, #network .node circle.body { transition: stroke 0.25s, opacity 0.25s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ov, .drawer, #inspector, #palette, .card, #network .edge, #network .node circle.body {
+    transition: none;
+  }
+}
+html[data-reduced-motion="true"] .ov,
+html[data-reduced-motion="true"] .drawer,
+html[data-reduced-motion="true"] #inspector,
+html[data-reduced-motion="true"] #palette,
+html[data-reduced-motion="true"] .card,
+html[data-reduced-motion="true"] #network .edge,
+html[data-reduced-motion="true"] #network .node circle.body {
+  transition: none;
+}
+
+/* Reduced transparency: opaque overlays instead of blur/alpha. */
+@media (prefers-reduced-transparency: reduce) {
+  .ov { background: #05060d; }
+}
+html[data-reduced-transparency="true"] .ov { background: #05060d; }

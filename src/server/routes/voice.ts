@@ -53,6 +53,19 @@ export function registerVoiceRoutes(router: Router, db: Db): void {
     json(res, 200, { ok: true });
   });
 
+  router.post('/api/voice-session/:id/mode', ({ res, params, body }) => {
+    const b = body as { token?: string; mode?: string } | undefined;
+    if (!b?.token || !verifyVoiceToken(db, params.id, b.token)) {
+      return errorJson(res, 401, 'UNAUTHORIZED', 'invalid or expired voice session token');
+    }
+    const mode = String(b.mode ?? '');
+    if (!['push_to_talk', 'hold', 'continuous'].includes(mode)) {
+      return errorJson(res, 400, 'BAD_REQUEST', 'mode must be push_to_talk | hold | continuous');
+    }
+    db.run('UPDATE voice_sessions SET availability_mode = ? WHERE id = ?', mode, params.id);
+    json(res, 200, { ok: true, mode });
+  });
+
   router.post('/api/voice-session/:id/end', ({ res, params, body }) => {
     const b = body as { token?: string } | undefined;
     if (!b?.token || !verifyVoiceToken(db, params.id, b.token)) {

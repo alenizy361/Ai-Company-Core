@@ -1,0 +1,47 @@
+/* Reset + typography + a11y primitives. Logical properties only. */
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  font-family: -apple-system, "Segoe UI", system-ui, "Noto Sans Arabic", Tahoma, Arial, sans-serif;
+  font-size: var(--fs-m);
+}
+
+button { font: inherit; color: inherit; cursor: pointer; }
+input, textarea { font: inherit; }
+
+/* Technical content: ids, paths, URLs, code, metrics — never mirrored. */
+.tech {
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.86em;
+  color: var(--dim);
+  word-break: break-all;
+}
+
+/* Streaming prose: direction from content, stable during append. */
+.prose-stream {
+  unicode-bidi: plaintext;
+  text-align: start;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 6px; }
+
+::selection { background: rgba(56, 225, 255, 0.3); }
+
+/* Scrollbars: quiet. */
+* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }

@@ -8,14 +8,17 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
-const SKIP_DIRS = new Set(['.git', 'node_modules', 'var', 'web']);
-// web/ is excluded until its SIRA rebuild lands (tracked in the SIRA phases);
-// it is re-included by the UI acceptance suite.
+const SKIP_DIRS = new Set(['.git', 'node_modules', 'var']);
 const EXTENSIONS = /\.(ts|js|mjs|md|json|sql|sh|html|css|yml|yaml|txt)$/;
+// The only allowed matches are the explicit legacy-migration sites that exist
+// to ERASE the old name from existing deployments.
 const ALLOWED: Record<string, RegExp> = {
   'src/shared/seed.ts': /UPDATE orgs SET name = 'SIRA' WHERE id = \? AND name = 'Rabit AI Company'/,
-  'scripts/install-sira.sh': /for old in rabit-api rabit-worker/,
+  'scripts/install-sira.sh': /for old in rabit-api rabit-worker|migrating old \$old\.service/,
+  'web/js/core/prefs.js': /rabit\.(lang|conversationId)|previous product/,
   'tests/unit/branding.test.ts': /.*/, // this file names the patterns it hunts
+  'tests/unit/static-guards.test.ts': /rabit|jarvis/i, // ditto
+  'tests/unit/i18n-parity.test.ts': /rabit|jarvis/i, // ditto
 };
 
 function* walk(dir: string): Generator<string> {
