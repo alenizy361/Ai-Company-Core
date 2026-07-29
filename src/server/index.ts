@@ -10,8 +10,11 @@ import { serveStatic } from './static.ts';
 import { registerStateRoutes } from './routes/state.ts';
 import { registerReadRoutes } from './routes/reads.ts';
 import { registerWriteRoutes } from './routes/writes.ts';
+import { registerConverseRoutes } from './routes/converse.ts';
+import { registerVoiceRoutes } from './routes/voice.ts';
 import { registerHealthRoute, type AdapterInfo } from './routes/health.ts';
-import { describeAdapterSelection } from '../adapters/select.ts';
+import { describeAdapterSelection, selectAdapter } from '../adapters/select.ts';
+import type { ModelAdapter } from '../adapters/types.ts';
 import { seedPromptsFromDisk } from '../promptreg/registry.ts';
 
 const paths = loadPaths();
@@ -29,10 +32,20 @@ function getAdapterInfo(): AdapterInfo {
   return adapterInfoCache;
 }
 
+let converseAdapter: ModelAdapter | null = null;
+function getConverseAdapter(): ModelAdapter {
+  // Converse is conversational I/O (no tool execution) — the one model-call
+  // path that lives in the API process, for latency.
+  if (!converseAdapter) converseAdapter = selectAdapter().adapter;
+  return converseAdapter;
+}
+
 registerHealthRoute(router, db, hub, cfg, getAdapterInfo);
 registerStateRoutes(router, db, hub, cfg);
 registerReadRoutes(router, db);
 registerWriteRoutes(router, db);
+registerConverseRoutes(router, db, getConverseAdapter);
+registerVoiceRoutes(router, db);
 
 const ownerToken = process.env.OWNER_TOKEN ?? '';
 

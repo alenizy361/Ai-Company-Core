@@ -61,7 +61,7 @@ export function storeArtifact(
 
 export const writeArtifactTool: Tool = {
   name: 'write_artifact',
-  description: 'Store a deliverable artifact for this task. Args: {name, content, kind?}. Overwrimtes nothing; creates a new version under the same name.',
+  description: 'Store a deliverable artifact for this task. Args: {name, content, kind?}. Overwrites nothing; creates a new version under the same name.',
   effects: 'write',
   schema: {
     type: 'object',
