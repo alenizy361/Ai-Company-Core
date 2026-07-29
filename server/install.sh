@@ -105,6 +105,22 @@ TG=$(get TELEGRAM_TOKEN); [ -z "$TG" ] && TG=$(ask TELEGRAM_TOKEN \
 # domain for HTTPS
 DOMAIN=$(ask RABIT_DOMAIN "Domain pointing at this server for HTTPS (blank = stay on http, mic stays OFF)" '')
 
+# Cover the www variant too, but only when it already resolves: Let's Encrypt
+# validates every requested name, so asking for a www that has no A record
+# fails the whole certificate — including the bare domain that would have worked.
+SRVNAMES="_"; CERTD=""
+if [ -n "$DOMAIN" ]; then
+  SRVNAMES="$DOMAIN"; CERTD="-d $DOMAIN"
+  case "$DOMAIN" in
+    # wildcard-DNS hosts answer for ANY label, so a www there is just noise
+    www.*|*.sslip.io|*.nip.io|*.traefik.me|*.localtest.me) ;;
+    *) if getent hosts "www.$DOMAIN" >/dev/null 2>&1; then
+         SRVNAMES="$DOMAIN www.$DOMAIN"; CERTD="$CERTD -d www.$DOMAIN"
+         ok "www.$DOMAIN resolves too — including it in the certificate"
+       fi ;;
+  esac
+fi
+
 # ---------------- systemd units ----------------
 say "Installing services..."
 # /opt/rabit-brain (code) is deliberately NOT writable by the services, so a
@@ -179,7 +195,7 @@ cat > /etc/nginx/sites-available/rabit-dashboard <<EOF
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
-    server_name ${DOMAIN:-_};
+    server_name $SRVNAMES;
     root /var/www/rabit;
     index index.html;
 
@@ -215,9 +231,9 @@ nginx -t && { systemctl enable --now nginx >/dev/null 2>&1 || true; systemctl re
 # ---------------- HTTPS ----------------
 if [ -n "$DOMAIN" ]; then
   say "Getting HTTPS certificate for $DOMAIN..."
-  certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect \
+  certbot --nginx $CERTD --non-interactive --agree-tos --register-unsafely-without-email --redirect --expand \
     && ok "HTTPS active — the iPhone mic will work now" \
-    || warn "certbot failed — check the domain's A record points at this server, then re-run: certbot --nginx -d $DOMAIN"
+    || warn "certbot failed — check the domain's A record points at this server, then re-run: certbot --nginx $CERTD"
 fi
 
 # ---------------- cron routines ----------------
