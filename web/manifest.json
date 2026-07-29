@@ -1,0 +1,17 @@
+{
+  "name": "RABIT — AI Company OS",
+  "short_name": "RABIT",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070b16",
+  "theme_color": "#070b16",
+  "description": "Voice-first autonomous company operating system.",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='42' fill='%23070b16' stroke='%2338e1ff' stroke-width='3'/%3E%3Ctext x='50' y='62' font-size='34' font-weight='800' text-anchor='middle' fill='%23e8ecff' font-family='Arial'%3ER%3C/text%3E%3C/svg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
