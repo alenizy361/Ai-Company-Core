@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# RABIT OS installer/deployer for a dedicated machine (Linux/macOS/WSL).
+#
+#   ./scripts/install-rabit.sh                 install + verify, then tell you how to run
+#   ./scripts/install-rabit.sh --services      also install systemd services (24/7 operation)
+#   ./scripts/install-rabit.sh --skip-tests    skip the test suite (not recommended)
+#
+# What it does, in order:
+#   1. Checks Node.js >= 22.18 (needed for built-in SQLite + TS type-stripping)
+#   2. Checks the `claude` CLI login (your Max plan powers the agents;
+#      without it RABIT still runs, loudly labeled MOCK MODE)
+#   3. npm ci  ->  seeds the database (org, 13 agents, versioned prompts)
+#   4. Runs the full test suite (42 tests incl. the acceptance tests)
+#   5. Runs every agent's evaluation suite and activates agents that pass 100%
+#   6. Optionally installs systemd user services with restart policies
+set -euo pipefail
+cd "$(dirname "$0")/.."
+REPO_DIR="$(pwd)"
+
+WITH_SERVICES=false
+SKIP_TESTS=false
+for arg in "$@"; do
+  case "$arg" in
+    --services) WITH_SERVICES=true ;;
+    --skip-tests) SKIP_TESTS=true ;;
+    *) echo "unknown flag: $arg" >&2; exit 2 ;;
+  esac
+done
+
+say()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
+ok()   { printf '\033[1;32m    ✓ %s\033[0m\n' "$*"; }
+warn() { printf '\033[1;33m    ! %s\033[0m\n' "$*"; }
+die()  { printf '\033[1;31m    ✗ %s\033[0m\n' "$*" >&2; exit 1; }
+
+# 1. Node.js ---------------------------------------------------------------
+say "Checking Node.js"
+if ! command -v node >/dev/null 2>&1; then
+  die "Node.js not found. Install Node 22 LTS first:
+      Ubuntu/Debian:  curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs
+      Fedora:         sudo dnf install nodejs22
+      macOS:          brew install node@22
+      any OS (nvm):   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash && nvm install 22"
+fi
+NODE_VERSION="$(node --version | sed 's/^v//')"
+NODE_MAJOR="${NODE_VERSION%%.*}"
+NODE_MINOR="$(echo "$NODE_VERSION" | cut -d. -f2)"
+if [ "$NODE_MAJOR" -lt 22 ] || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 18 ]; }; then
+  die "Node $NODE_VERSION is too old — RABIT needs >= 22.18 (built-in SQLite + TS support). See the install commands above."
+fi
+NODE_BIN="$(command -v node)"
+ok "Node $NODE_VERSION at $NODE_BIN"
+
+# 2. Claude CLI (real model access) ---------------------------------------
+say "Checking Claude model access"
+LIVE_MODEL=false
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  LIVE_MODEL=true
+  ok "ANTHROPIC_API_KEY set — the Anthropic API adapter will be used"
+elif command -v claude >/dev/null 2>&1; then
+  if claude auth status >/dev/null 2>&1; then
+    LIVE_MODEL=true
+    ok "claude CLI logged in — agents run on your subscription"
+  else
+    warn "claude CLI found but not logged in. Run:  claude login"
+  fi
+else
+  warn "claude CLI not found. Install Claude Code and run 'claude login',"
+  warn "or set ANTHROPIC_API_KEY. Until then RABIT runs in labeled MOCK MODE."
+fi
+
+# 3. Dependencies + database ----------------------------------------------
+say "Installing dependencies"
+npm ci
+say "Seeding database (org, 13 agents, versioned prompts)"
+npm run seed
+
+# 4. Test suite ------------------------------------------------------------
+if [ "$SKIP_TESTS" = false ]; then
+  say "Running the test suite (typecheck + 42 tests incl. acceptance tests)"
+  npm test
+  ok "all tests passed"
+else
+  warn "tests skipped (--skip-tests)"
+fi
+
+# 5. Eval-gated agent activation -------------------------------------------
+say "Running agent evaluation suites (agents activate only at 100%)"
+npm run eval -- --promote
+
+# 6. Optional systemd services ---------------------------------------------
+RUN_HINT="npm run dev        # API :4600 + worker in one terminal"
+if [ "$WITH_SERVICES" = true ]; then
+  say "Installing systemd services"
+  if ! command -v systemctl >/dev/null 2>&1 || ! systemctl --user show-environment >/dev/null 2>&1; then
+    warn "systemd user services not available on this machine — skipping service install."
+    warn "(On WSL2: add '[boot]' + 'systemd=true' to /etc/wsl.conf, then 'wsl --shutdown' and reopen.)"
+    warn "Run RABIT with:  $RUN_HINT"
+  else
+    UNIT_DIR="$HOME/.config/systemd/user"
+    mkdir -p "$UNIT_DIR"
+    for svc in api worker; do
+      ENTRY="src/server/index.ts"; DESC="RABIT OS API server"
+      if [ "$svc" = worker ]; then ENTRY="src/worker/index.ts"; DESC="RABIT OS execution worker"; fi
+      cat > "$UNIT_DIR/rabit-$svc.service" <<UNIT
+[Unit]
+Description=$DESC
+After=network.target
+
+[Service]
+WorkingDirectory=$REPO_DIR
+ExecStart=$NODE_BIN --disable-warning=ExperimentalWarning $ENTRY
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+# Environment=PORT=4600
+# Environment=OWNER_TOKEN=change-me-if-exposing-beyond-localhost
+
+[Install]
+WantedBy=default.target
+UNIT
+    done
+    systemctl --user daemon-reload
+    systemctl --user enable --now rabit-api.service rabit-worker.service
+    ok "services rabit-api + rabit-worker enabled and started"
+    if command -v loginctl >/dev/null 2>&1; then
+      warn "so services keep running after you log out:  sudo loginctl enable-linger $USER"
+    fi
+    RUN_HINT="systemctl --user status rabit-api rabit-worker
+      journalctl --user -u rabit-worker -f     # live worker logs"
+  fi
+fi
+
+# Summary -------------------------------------------------------------------
+say "RABIT OS installed"
+echo "    Open:      http://localhost:4600"
+echo "    Run/watch: $RUN_HINT"
+if [ "$LIVE_MODEL" = true ]; then
+  echo "    Model:     LIVE (subscription/API)"
+else
+  echo "    Model:     MOCK MODE until 'claude login' or ANTHROPIC_API_KEY — the UI shows a banner"
+fi
+echo "    Voice:     works now with browser providers; add DEEPGRAM_API_KEY /"
+echo "               FISH_AUDIO_API_KEY / PICOVOICE_ACCESS_KEY / LIVEKIT_* env"
+echo "               vars to the services to switch on the external providers."
+echo "    Note:      the mic and speech APIs need localhost or HTTPS in the browser."

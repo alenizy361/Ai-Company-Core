@@ -18,6 +18,14 @@ npm run dev                  # API :4600 + execution worker (separate processes)
 # open http://localhost:4600 — tap the mic (or type) and give RABIT an objective
 ```
 
+Deploying on a dedicated machine (Linux/macOS/WSL2)? One command does all of
+the above, verifies the install with the full test + eval suites, and can set
+up always-on systemd services with restart policies:
+
+```
+./scripts/install-rabit.sh --services
+```
+
 ## The truth architecture
 
 The founding rule: **nothing on screen and nothing an agent says may exist
