@@ -19,6 +19,7 @@ import { registerHealthRoute, type AdapterInfo } from './routes/health.ts';
 import { describeAdapterSelection, selectAdapter } from '../adapters/select.ts';
 import type { ModelAdapter } from '../adapters/types.ts';
 import { activateBaselineAgentPrompts, seedPromptsFromDisk } from '../promptreg/registry.ts';
+import { createSiraManager } from '../sira/session.ts';
 
 const paths = loadPaths();
 const cfg = loadSystemConfig();
@@ -49,11 +50,16 @@ function getConverseAdapter(): ModelAdapter {
   return converseAdapter;
 }
 
+// The Agent SDK engine: one persistent parent SIRA session per conversation.
+// Null when no real Claude auth exists (mock mode stays honest end-to-end).
+const sira = createSiraManager(db, cfg, paths);
+console.log(`[sira] conversation engine: ${sira ? 'agent-sdk (persistent parent session)' : 'legacy contract (no real Claude auth or ADAPTER=mock)'}`);
+
 registerHealthRoute(router, db, hub, cfg, getAdapterInfo);
 registerStateRoutes(router, db, hub, cfg);
 registerReadRoutes(router, db);
 registerWriteRoutes(router, db);
-registerConverseRoutes(router, db, getConverseAdapter);
+registerConverseRoutes(router, db, getConverseAdapter, sira);
 registerVoiceRoutes(router, db);
 registerEvalRoutes(router, db);
 registerVoiceProviderRoutes(router, db);
@@ -91,6 +97,7 @@ server.listen(cfg.port, () => {
 
 function shutdown(): void {
   hub.stop();
+  sira?.closeAll();
   server.close(() => {
     db.close();
     process.exit(0);

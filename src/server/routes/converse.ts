@@ -21,6 +21,8 @@ import { assertTransitionTask, type TaskStatus } from '../../shared/statuses.ts'
 import { AdapterError, type ModelAdapter, type ChatMessage } from '../../adapters/types.ts';
 import { recordTransition, verifyVoiceToken } from '../../voice/session.ts';
 import { cascadeDependencyFailure, maybeCompleteObjective } from '../../worker/handoff.ts';
+import type { SiraManager } from '../../sira/session.ts';
+import { SpeakableStream, speakableSentence } from '../../sira/speakable.ts';
 
 /**
  * The reply-language rule lives IN the system contract: when the owner locks
@@ -93,7 +95,12 @@ function companyStateSummary(db: Db, cfg: ReturnType<typeof loadSystemConfig>): 
   ].join('\n');
 }
 
-export function registerConverseRoutes(router: Router, db: Db, getAdapter: () => ModelAdapter): void {
+export function registerConverseRoutes(
+  router: Router,
+  db: Db,
+  getAdapter: () => ModelAdapter,
+  sira: SiraManager | null = null,
+): void {
   const cfg = loadSystemConfig();
 
   router.post('/api/converse', async ({ res, body }) => {
@@ -136,6 +143,15 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
     // Owner setting: force the reply language instead of mirroring the input.
     // Applied in the SYSTEM contract so it replaces (not fights) the mirror rule.
     const replyLang = b.replyLang === 'en' || b.replyLang === 'ar' ? b.replyLang : null;
+
+    // ---- Agent SDK engine: the persistent parent SIRA session owns the
+    // conversation, the execution loop, subagents, and the final synthesis.
+    // The legacy contract path below remains the honest fallback (mock mode /
+    // no real Claude auth).
+    if (sira) {
+      await runSiraTurn({ db, cfg, res, sira, conversationId, text: b.text, modality, replyLang, voiceSession, lang: b.lang ?? '' });
+      return;
+    }
 
     // System prompt: core truth/communication rules + converse contract.
     let coreText = '';
@@ -432,4 +448,130 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(rows));
   });
+}
+
+/**
+ * One owner turn through the persistent Agent SDK session. Keeps the exact
+ * SSE surface the client already speaks (state -> delta* -> say* -> route ->
+ * done), so voice and text flow unchanged while the engine underneath is the
+ * real Claude Code loop. The final `done.say` is ALWAYS the parent session's
+ * own conversational synthesis — never a task-status string; execution
+ * progress reaches the interface as persisted sira.* events instead.
+ */
+async function runSiraTurn(deps: {
+  db: Db;
+  cfg: ReturnType<typeof loadSystemConfig>;
+  res: ServerResponse;
+  sira: SiraManager;
+  conversationId: string;
+  text: string;
+  modality: 'voice' | 'text';
+  replyLang: 'en' | 'ar' | null;
+  voiceSession: string | null;
+  lang: string;
+}): Promise<void> {
+  const { db, cfg, res, sira, conversationId, text, modality, replyLang, voiceSession } = deps;
+  if (voiceSession) recordTransition(db, voiceSession, 'thinking', 'server');
+  sse(res, 'state', { state: 'thinking' });
+
+  const session = sira.getOrCreate(conversationId, replyLang);
+  const speakable = new SpeakableStream();
+  const sentences = new SentenceBuffer();
+  const requestId = ulid('mr');
+  const started = Date.now();
+
+  let interrupted = false;
+  const onClose = (): void => {
+    if (!res.writableEnded) {
+      // Barge-in/disconnect: stop THIS turn only — the session survives for
+      // the next turn (and any background subagents keep running).
+      interrupted = true;
+      void session.interrupt();
+    }
+  };
+  res.on('close', onClose);
+
+  const turnText = replyLang
+    ? `${text}\n\n[Owner setting: reply only in ${replyLang === 'en' ? 'English' : 'Arabic'}.]`
+    : text;
+
+  const emitSpeakable = (chunk: string): void => {
+    for (const segment of sentences.push(chunk)) {
+      const spoken = speakableSentence(segment);
+      if (spoken) sse(res, 'say', { text: spoken });
+    }
+  };
+
+  let finalText = '';
+  let usage = { input: 0, output: 0 };
+  let errorMessage: string | null = null;
+  try {
+    for await (const event of session.send(turnText)) {
+      if (event.kind === 'delta') {
+        sse(res, 'delta', { text: event.text });
+        emitSpeakable(speakable.push(event.text));
+      } else if (event.kind === 'activity') {
+        // Live execution hint for this stream; the durable record is the
+        // persisted sira.* event on /api/events.
+        sse(res, 'exec', { type: event.type, agentKey: event.agentKey ?? null, tool: event.tool ?? null });
+      } else if (event.kind === 'final') {
+        finalText = event.text;
+        usage = event.usage;
+      } else {
+        errorMessage = event.message;
+      }
+    }
+  } finally {
+    res.off('close', onClose);
+  }
+
+  if (interrupted) {
+    db.run(
+      `INSERT INTO model_requests (id, purpose, adapter, model, prompt_chars, response_text, parse_status, error, duration_ms, created_at)
+       VALUES (?, 'converse', 'agent-sdk', ?, ?, '', 'adapter_error', 'aborted by client', ?, ?)`,
+      requestId, session.model, text.length, Date.now() - started, Date.now(),
+    );
+    if (voiceSession) recordTransition(db, voiceSession, 'ready', 'server');
+    res.end();
+    return;
+  }
+
+  if (errorMessage !== null && finalText === '') {
+    db.run(
+      `INSERT INTO model_requests (id, purpose, adapter, model, prompt_chars, response_text, parse_status, error, duration_ms, created_at)
+       VALUES (?, 'converse', 'agent-sdk', ?, ?, '', 'adapter_error', ?, ?, ?)`,
+      requestId, session.model, text.length, errorMessage.slice(0, 1000), Date.now() - started, Date.now(),
+    );
+    if (voiceSession) recordTransition(db, voiceSession, 'failed', 'server');
+    sse(res, 'error', { code: 'unavailable', message: 'SIRA could not complete this turn', reference: requestId, detail: errorMessage.slice(0, 200) });
+    sse(res, 'done', {});
+    res.end();
+    return;
+  }
+
+  // Flush the speakable remainder of the stream.
+  emitSpeakable(speakable.flush());
+  const rest = sentences.flush();
+  if (rest) {
+    const spoken = speakableSentence(rest);
+    if (spoken) sse(res, 'say', { text: spoken });
+  }
+
+  db.run(
+    `INSERT INTO model_requests (id, purpose, adapter, model, prompt_chars, response_text, parse_status, input_tokens, output_tokens, duration_ms, created_at)
+     VALUES (?, 'converse', 'agent-sdk', ?, ?, ?, 'ok', ?, ?, ?, ?)`,
+    requestId, session.model, text.length, finalText.slice(0, 50000), usage.input, usage.output, Date.now() - started, Date.now(),
+  );
+  const assistantMessageId = ulid('msg');
+  db.run(
+    `INSERT INTO messages (id, conversation_id, role, modality, lang, content, route, model_request_id, created_at)
+     VALUES (?, ?, 'assistant', ?, ?, ?, 'reply', ?, ?)`,
+    assistantMessageId, conversationId, modality, deps.lang, finalText, requestId, Date.now(),
+  );
+  db.run('UPDATE conversations SET updated_at = ? WHERE id = ?', Date.now(), conversationId);
+
+  sse(res, 'route', { route: 'reply', engine: 'agent-sdk', sdkSessionId: session.sdkSessionId });
+  if (voiceSession) recordTransition(db, voiceSession, 'ready', 'server');
+  sse(res, 'done', { assistantMessageId, say: finalText });
+  res.end();
 }

@@ -158,7 +158,9 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
 
   router.post('/api/voice/tts', async ({ res, query, body }) => {
     if (!requireSession(query, res)) return;
-    const key = env.FISH_AUDIO_API_KEY;
+    // FISH_API_KEY is the canonical name; FISH_AUDIO_API_KEY remains accepted
+    // for existing deployments. The key never leaves the server.
+    const key = env.FISH_API_KEY ?? env.FISH_AUDIO_API_KEY;
     const b = body as { text?: string; lang?: string } | undefined;
     const text = b?.text;
     if (!text || typeof text !== 'string') return errorJson(res, 400, 'BAD_REQUEST', 'text is required');

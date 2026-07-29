@@ -83,15 +83,35 @@ tests/         40 tests incl. the 9 mandatory acceptance tests (worker-kill
                prompt lifecycle, interface truth)
 ```
 
+## The conversation engine (official Claude Agent SDK)
+
+SIRA's conversation runs on the **official Claude Agent SDK**
+(`@anthropic-ai/claude-agent-sdk`): one persistent parent session per
+conversation (streaming input — never a one-shot query per sentence), the
+real Claude Code system preset with a SIRA identity append, and real SDK
+subagents (`src/sira/agents.ts`: product, ux, frontend, backend, qa, … — no
+CEO subagent; the parent session IS the orchestrator). The SDK owns the
+execution loop: tool calls, subagent invocation, results returning to the
+parent, and the final synthesis. A completed task is an internal event
+(`sira.agent.completed` / `sira.execution.completed` on `/api/events`) —
+the final user response is ALWAYS the parent session's own conversational
+message, streamed as text (`delta`) and as speakable sentences (`say`,
+code/URLs/ids stripped by `src/sira/speakable.ts`). SDK session ids are
+persisted in `sdk_sessions` and resumed across API restarts. Dangerous Bash
+commands pause the session for owner approval (same approvals UI). Without
+real Claude auth (or with `ADAPTER=mock` / `SIRA_ENGINE=legacy`) the legacy
+contract path answers instead, honestly labeled.
+
 ## Model access (Claude Max plan by design)
 
-All agents share one Claude subscription via the `claude` CLI in headless
-print mode with **all built-in tools disabled** — a startup canary proves a
-tool-bait prompt causes no side effects before the adapter is trusted.
-`ANTHROPIC_API_KEY` switches to the API adapter; with neither, the system
-runs in loudly-labeled MOCK MODE (banner + health endpoint reason — never
-silent). Usage is tracked in tokens per 5-hour/weekly quota windows
-(`/api/usage`) because subscription billing has no per-token dollars.
+The execution worker's agents share one Claude subscription via the
+`claude` CLI in headless print mode with **all built-in tools disabled** —
+a startup canary proves a tool-bait prompt causes no side effects before
+the adapter is trusted. `ANTHROPIC_API_KEY` switches to the API adapter;
+with neither, the system runs in loudly-labeled MOCK MODE (banner + health
+endpoint reason — never silent). Usage is tracked in tokens per
+5-hour/weekly quota windows (`/api/usage`) because subscription billing has
+no per-token dollars.
 
 ## Voice
 
@@ -104,7 +124,7 @@ a provider interface; configuring keys switches the primary path
 | Layer | Fallback (works now) | Primary when configured |
 |---|---|---|
 | STT | Web Speech (browser) | Deepgram — `DEEPGRAM_API_KEY` |
-| TTS | speechSynthesis | Fish Audio — `FISH_AUDIO_API_KEY` |
+| TTS | speechSynthesis | Fish Audio — `FISH_API_KEY` (or legacy `FISH_AUDIO_API_KEY`) |
 | Wake word | none → push-to-talk | Porcupine — `PICOVOICE_ACCESS_KEY` |
 | Transport | in-page capture | LiveKit — `LIVEKIT_URL/API_KEY/API_SECRET` |
 
