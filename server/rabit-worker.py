@@ -40,6 +40,63 @@ INLINE_MAX_TOTAL = 512 * 1024
 CODE_EXT = {".py", ".js", ".css", ".json", ".csv"}
 IMG_EXT = {".png", ".jpg", ".jpeg", ".svg", ".webp"}
 
+# The plan assigns every step a specialist, but the executor never learned
+# which one it was — every step ran as the same anonymous builder. A reviewer
+# that does not know it is reviewing produces the same generic output as
+# everyone else, which is exactly how a real run comes to look like filler.
+ROLES = {
+    "CEO": "the chief executive. Decide what matters, cut what does not, and "
+           "state each decision and its reason plainly.",
+    "PM":  "the product manager. Turn intent into concrete, testable "
+           "requirements and acceptance criteria — no vague goals.",
+    "UX":  "the experience designer. Specify real layout, hierarchy, colour "
+           "(hex), type, spacing, states and accessibility. Never give vague "
+           "direction another person still has to interpret.",
+    "FE":  "the frontend engineer. Build the working interface itself — "
+           "responsive, accessible, self-contained. A sketch is not a build.",
+    "BE":  "the backend engineer. Own the data flow and logic, and handle the "
+           "error paths, not only the happy one.",
+    "DB":  "the data engineer. Own schema, queries, integrity and migrations.",
+    "QA":  "the quality reviewer. READ what the earlier steps actually "
+           "produced, find real defects, FIX them in the files, and report "
+           "exactly what you checked and what you changed. Never approve "
+           "anything you did not open.",
+    "SEC": "the security reviewer. Find concrete vulnerabilities in the real "
+           "files and remediate them there. Generic advice is not a finding.",
+    "AN":  "the analyst. Define what to measure and say what the numbers mean.",
+    "MKT": "the marketing lead. Write positioning and copy a real customer "
+           "would read — not placeholder marketing language.",
+    "FIN": "the finance lead. Produce pricing and costs whose figures add up.",
+    "OPS": "the operations engineer. Own deployment, monitoring and reliability.",
+    "CS":  "the support lead. Write help content that answers real questions.",
+}
+
+
+def has_arabic(text):
+    return any("؀" <= ch <= "ۿ" for ch in text or "")
+
+
+def build_brief(title, steps, idx):
+    """Tell the step what project it belongs to and where it sits in the plan.
+    A specialist that cannot see the goal can only produce something generic."""
+    me = steps[idx]
+    lines = ["PROJECT: %s" % (title or "(untitled)"),
+             "You are step %d of %d." % (idx + 1, len(steps))]
+    before = ["  %d. %s (%s) — done" % (i + 1, s["title"], s["agent"])
+              for i, s in enumerate(steps) if i < idx]
+    after = ["  %d. %s (%s) — comes after you" % (i + 1, s["title"], s["agent"])
+             for i, s in enumerate(steps) if i > idx]
+    if before:
+        lines.append("Already finished, and their files are in this workspace "
+                     "for you to read and build on:")
+        lines += before
+    if after:
+        lines.append("Still to come — leave them what they need, do not do "
+                     "their work for them:")
+        lines += after
+    lines.append("Your step: %s" % me["title"])
+    return "\n".join(lines)
+
 import importlib.util as _ilu
 _hp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rabit_claude.py")
 _spec = _ilu.spec_from_file_location("rabit_claude", _hp)
@@ -493,8 +550,10 @@ def run_project(pid, claude_bin):
         os.makedirs(ws, exist_ok=True)
         seed_previous(pid, ws)
         steps = steps_of(pid)
+        title = project_title(pid)
+        arabic = has_arabic(title) or any(has_arabic(s["spec"]) for s in steps)
         cancelled = False
-        for st in steps:
+        for idx, st in enumerate(steps):
             if cancel_requested(pid):
                 cancelled = True
             if cancelled:
@@ -512,7 +571,10 @@ def run_project(pid, claude_bin):
                        + ", ".join(existing[:40]))
             ok, log = rabit_claude.run_job(claude_bin, st["spec"] + ctx, ws, HOME,
                                            max_turns=MAX_TURNS,
-                                           should_abort=lambda: cancel_requested(pid))
+                                           should_abort=lambda: cancel_requested(pid),
+                                           role=ROLES.get(st["agent"], ""),
+                                           brief=build_brief(title, steps, idx),
+                                           arabic=arabic)
             files = changed_files(before, ws)
             if log == "cancelled" and not ok:
                 set_step(st["id"], status="cancelled", ended=time.time())
