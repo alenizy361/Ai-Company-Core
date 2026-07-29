@@ -96,7 +96,7 @@
   }
   .phead{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--line)}
   .phead b{font-size:12px;letter-spacing:2.5px;color:var(--dim);font-weight:800}
-  .reddot{width:8px;height:8px;border-radius:50%;background:var(--red);animation:blink 1s infinite}
+  .reddot{width:8px;height:8px;border-radius:50%;background:var(--violet)}
   @keyframes blink{50%{opacity:.2}}
   #feedBox{max-height:300px;min-height:140px;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:6px;
     background:#070a16}
@@ -136,8 +136,8 @@
   .dhead .bubble{width:48px;height:48px;font-size:12px;animation:none}
   #dTitle{font-size:16px;font-weight:800}
   #dRole{font-size:11px;color:var(--dim)}
-  .livebadge{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:var(--red)}
-  .livebadge::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--red);animation:blink 1s infinite}
+  .livebadge{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:var(--violet)}
+  .livebadge::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--violet)}
   #dStream{display:flex;flex-direction:column;gap:6px;margin-top:12px}
   #dStream .fline{background:#070a16;border:1px solid var(--line);border-radius:10px;padding:7px 9px}
   #dEmpty{color:var(--dim);font-size:12px;text-align:center;padding:18px 0}
@@ -205,7 +205,7 @@
       <div id="dRole">—</div>
     </div>
     <div class="spacer"></div>
-    <span class="livebadge" id="dLive">LIVE</span>
+    <span class="livebadge" id="dLive" data-i18n="simTag">SIM</span>
   </div>
   <span class="chip" id="dTask">—</span>
   <div id="dStream"></div>
@@ -233,7 +233,7 @@
 
 /* ================= i18n ================= */
 const I18N={
-  ar:{caption:"اضغط على أي موظف لتشاهد بثّه المباشر",liveFeed:"البث المباشر",
+  ar:{caption:"اضغط على أي موظف لعرض نشاطه — محاكاة بصرية",liveFeed:"محاكاة النشاط",simTag:"محاكاة",
       coreStatus:"حالة النواة",central:"النواة المركزية",
       agents:"الموظفون",working:"يعملون الآن",
       ask:"مُر شركتك… مثلاً: سوّوا لي متجر إلكتروني",
@@ -245,12 +245,10 @@ const I18N={
       thinking:"النواة تفكر…",
       offBadge:"غير متصل",
       offline:"النواة غير متصلة بالخادم. تأكد أن خدمة rabit-brain شغالة على السيرفر ثم حدّث الصفحة.",
-      planReply:(names)=>`وصلني أمرك يا مدير. حللت المهمة وكلفت الفريق: ${names}. تابعهم الآن مباشرة على اللوحة.`,
-      planSay:(names)=>`تم استلام الأمر. كلفت ${names}. بدأ التنفيذ الآن.`,
-      doneReply:(names)=>`اكتملت المهمة يا مدير. الفريق (${names}) أنهى كل التكليفات وسلّم الشغل. جاهزين لأمرك التالي.`,
-      doneSay:"يا مدير، اكتملت المهمة بنجاح. الفريق جاهز لأمرك التالي.",
+      doneReply:"انتهى عرض المحاكاة على اللوحة. هذا عرض بصري فقط — ما تم تنفيذ أي عمل فعلي.",
+      doneSay:"انتهت المحاكاة على اللوحة يا مدير.",
       task:"المهمة الحالية",noTask:"بدون مهمة نشطة"},
-  en:{caption:"Tap any agent to watch its live stream",liveFeed:"LIVE STREAM",
+  en:{caption:"Tap any agent to view its activity — visual simulation",liveFeed:"ACTIVITY SIMULATION",simTag:"SIM",
       coreStatus:"AI CORE STATUS",central:"Central core",
       agents:"Agents",working:"Working now",
       ask:"Command your company… e.g. build me an online store",
@@ -262,10 +260,8 @@ const I18N={
       thinking:"Core is thinking…",
       offBadge:"OFFLINE",
       offline:"The core is not connected to the server. Make sure the rabit-brain service is running, then refresh the page.",
-      planReply:(names)=>`Order received, boss. I analyzed it and assigned: ${names}. Watch them live on the board.`,
-      planSay:(names)=>`Order received. I assigned ${names}. Execution starts now.`,
-      doneReply:(names)=>`Mission complete, boss. The team (${names}) finished all assignments. Ready for your next order.`,
-      doneSay:"Boss, the mission is complete. The team is ready for your next order.",
+      doneReply:"Board simulation finished. This is a visual demo only — no real work was executed.",
+      doneSay:"Board simulation finished, boss.",
       task:"Current mission",noTask:"No active mission"}
 };
 let lang="ar";
@@ -289,48 +285,37 @@ btnEN.onclick=()=>{lang="en";applyLang();};
 const AGENTS=[
   {key:"CEO",x:50,y:7.5, ring:"#34d399",tc:"#b18cff",big:1,pitch:.8,
    ar:"الرئيس التنفيذي",en:"CEO",
-   logs:['▶ Read COMPANY.md','Reviewing the order against company goals…','▶ Read agents/*/AGENTS.md','✔ Approved — dispatching to PM'],
-   says:{ar:["تمت الموافقة على المهمة، نفّذوا فورًا","المهمة معتمدة، بالتوفيق للفريق"],en:["Mission approved, execute immediately","Approved. Good luck, team"]}},
+   logs:['▶ Read COMPANY.md','Reviewing the order against company goals…','▶ Read agents/*/AGENTS.md','✔ Approved — dispatching to PM']},
   {key:"PM", x:31,y:90, ring:"#fbbf24",tc:"#60a5fa",pitch:1.15,
    ar:"مدير المشاريع",en:"Project Manager",
-   logs:['▶ Write plan.md (+38 lines)','Breaking the mission into tasks…','▶ Assign RAB-12 → FE','▶ Assign RAB-13 → BE','▶ Assign RAB-14 → QA','Tracking progress across the board…','✔ All tasks dispatched'],
-   says:{ar:["وزعت المهام على الفريق يا مدير","الخطة جاهزة والتنفيذ بدأ"],en:["Tasks assigned to the team, boss","Plan is ready, execution started"]}},
+   logs:['▶ Write plan.md (+38 lines)','Breaking the mission into tasks…','▶ Assign RAB-12 → FE','▶ Assign RAB-13 → BE','▶ Assign RAB-14 → QA','Tracking progress across the board…','✔ All tasks dispatched']},
   {key:"FE", x:24,y:14, ring:"#38e1ff",tc:"#38e1ff",pitch:1.05,
    ar:"مهندس الواجهات",en:"Frontend",
-   logs:['▶ Write src/pages/index.tsx (+214)','▶ Bash npm run build','Polishing the hero section…','▶ Write src/components/Navbar.tsx (+96)','Wiring the UI to the API…','✔ UI build passed'],
-   says:{ar:["خلصت الواجهة يا مدير","الصفحة صارت تجنن، جربها"],en:["Frontend is done, boss","The page looks great, try it"]}},
+   logs:['▶ Write src/pages/index.tsx (+214)','▶ Bash npm run build','Polishing the hero section…','▶ Write src/components/Navbar.tsx (+96)','Wiring the UI to the API…','✔ UI build passed']},
   {key:"QA", x:75,y:15.5,ring:"#34d399",tc:"#38e1ff",pitch:1.25,
    ar:"مراقب الجودة",en:"QA",
-   logs:['▶ Bash playwright test — 28/28 ✓','Hunting edge cases…','▶ Bash npm run lint — clean','Re-testing on mobile viewport…','✔ No blocking bugs found'],
-   says:{ar:["فحصت كل شي، ما فيه أخطاء","الجودة ممتازة، أعتمدها"],en:["Everything tested, zero bugs","Quality is excellent, approved"]}},
+   logs:['▶ Bash playwright test — 28/28 ✓','Hunting edge cases…','▶ Bash npm run lint — clean','Re-testing on mobile viewport…','✔ No blocking bugs found']},
   {key:"BE", x:15,y:33, ring:"#38e1ff",tc:"#38e1ff",pitch:.9,
    ar:"مهندس الأنظمة",en:"Backend",
-   logs:['▶ Write api/server.ts (+180)','Designing REST endpoints…','▶ Bash npm test — 34 passed','▶ Write api/auth.ts (+72)','Deploying to staging…','✔ API live on staging'],
-   says:{ar:["السيرفر جاهز وشغال","الـ API صار حي، اربطوا عليه"],en:["Server is up and running","API is live, hook into it"]}},
+   logs:['▶ Write api/server.ts (+180)','Designing REST endpoints…','▶ Bash npm test — 34 passed','▶ Write api/auth.ts (+72)','Deploying to staging…','✔ API live on staging']},
   {key:"SEC",x:85,y:37.5,ring:"#fb7185",tc:"#fb7185",pitch:.75,
    ar:"مسؤول الأمن",en:"Security",
-   logs:['▶ Bash trivy scan — running…','Checking auth flows for leaks…','▶ Read api/auth.ts','Rotating exposed keys…','✔ 0 critical vulnerabilities'],
-   says:{ar:["الفحص الأمني سليم، ما فيه ثغرات","أمّنت كل المداخل يا مدير"],en:["Security scan is clean","All entry points secured, boss"]}},
+   logs:['▶ Bash trivy scan — running…','Checking auth flows for leaks…','▶ Read api/auth.ts','Rotating exposed keys…','✔ 0 critical vulnerabilities']},
   {key:"DB", x:14,y:55, ring:"#38e1ff",tc:"#38e1ff",pitch:.95,
    ar:"مهندس البيانات",en:"Database",
-   logs:['▶ Write schema.sql (+66)','Optimizing slow indexes…','▶ Bash prisma migrate deploy','Backing up before migration…','✔ Schema migrated cleanly'],
-   says:{ar:["قاعدة البيانات جاهزة","رحّلت البيانات بدون أي فقد"],en:["Database is ready","Migration finished with zero loss"]}},
+   logs:['▶ Write schema.sql (+66)','Optimizing slow indexes…','▶ Bash prisma migrate deploy','Backing up before migration…','✔ Schema migrated cleanly']},
   {key:"AN", x:85,y:58, ring:"#34d399",tc:"#34d399",pitch:1.1,
    ar:"محلل البيانات",en:"Analytics",
-   logs:['▶ Query events last 30d','Building the funnel report…','▶ Write report.md (+52)','Segmenting users by cohort…','✔ Insights ready for review'],
-   says:{ar:["طلعت لك الأرقام والتحليل","التقرير جاهز، الأرقام إيجابية"],en:["Numbers and analysis are out","Report ready — metrics look good"]}},
+   logs:['▶ Query events last 30d','Building the funnel report…','▶ Write report.md (+52)','Segmenting users by cohort…','✔ Insights ready for review']},
   {key:"UX", x:17,y:74, ring:"#60a5fa",tc:"#60a5fa",pitch:1.2,
    ar:"مصمم التجربة",en:"UX Designer",
-   logs:['▶ Figma export wireframes','Choosing the color system…','▶ Write tokens.css (+40)','Testing the flow with 5 users…','✔ Design tokens handed to FE'],
-   says:{ar:["التصميم جاهز وسلمته للواجهات","اخترت هوية ألوان فخمة"],en:["Design done and handed to FE","Picked a premium color identity"]}},
+   logs:['▶ Figma export wireframes','Choosing the color system…','▶ Write tokens.css (+40)','Testing the flow with 5 users…','✔ Design tokens handed to FE']},
   {key:"MKT",x:83,y:76, ring:"#34d399",tc:"#34d399",pitch:1.3,
    ar:"مدير التسويق",en:"Marketing",
-   logs:['▶ Draft campaign copy v2','A/B testing headlines…','▶ Schedule posts (7 days)','Negotiating influencer rates…','✔ Campaign scheduled'],
-   says:{ar:["الحملة جاهزة ومجدولة","المحتوى التسويقي انطلق"],en:["Campaign ready and scheduled","Marketing content is live"]}},
+   logs:['▶ Draft campaign copy v2','A/B testing headlines…','▶ Schedule posts (7 days)','Negotiating influencer rates…','✔ Campaign scheduled']},
   {key:"FIN",x:69,y:91, ring:"#fbbf24",tc:"#fbbf24",pitch:.85,
    ar:"المدير المالي",en:"Finance",
-   logs:['▶ Compute budget forecast','Reviewing vendor costs…','▶ Write budget.xlsx','Flagging 2 savings opportunities…','✔ Budget approved & filed'],
-   says:{ar:["الميزانية معتمدة يا مدير","وفرت لك في التكاليف"],en:["Budget approved, boss","Found you some cost savings"]}},
+   logs:['▶ Compute budget forecast','Reviewing vendor costs…','▶ Write budget.xlsx','Flagging 2 savings opportunities…','✔ Budget approved & filed']},
 ];
 const byKey=Object.fromEntries(AGENTS.map(a=>[a.key,a]));
 
@@ -623,7 +608,6 @@ function runAgent(a,opts={}){
       after(a,900+Math.random()*1200,step);
     }else{
       a.status=opts.endIdle?"idle":"done";updateNode(a);refreshStats();
-      if(opts.sayDone)say(pick(a.says[lang]),a);
       opts.onDone&&opts.onDone(a);
     }
   };
@@ -638,37 +622,35 @@ function runAgent(a,opts={}){
   }
 }
 
-/* full mission: CEO approves → PM assigns → team executes in parallel.
-   opts.team lets the live brain pick the crew; opts.quiet skips the canned
-   announcement (the brain already replied in its own words) */
+/* board simulation: CEO → PM → team, purely visual. The brain picks the
+   crew (opts.team); the only voice that makes claims is the real Claude
+   reply — the simulation itself announces nothing but its own end */
 function startMission(cmd,opts={}){
   if(missionActive){cmdQ.push({cmd,opts});return;} /* re-entry guard: overlaps get queued */
   missionActive=true;setCore("planning");
   const teamKeys=(opts.team&&opts.team.length)?opts.team.slice():pickTeam(cmd);
-  const names=teamKeys.map(k=>lang==="ar"?byKey[k].ar:byKey[k].en).join(lang==="ar"?"، ":", ");
-  if(!opts.quiet){addMsg(T("planReply")(names),false);say(T("planSay")(names));}
   /* reset previous done states */
   AGENTS.forEach(a=>{if(a.status==="done"){a.status="idle";updateNode(a);}});
   feed(byKey.CEO,`▶ Order: "${cmd.slice(0,60)}"`);
-  runAgent(byKey.CEO,{lines:byKey.CEO.logs,sayDone:true,onDone:()=>{
+  runAgent(byKey.CEO,{lines:byKey.CEO.logs,onDone:()=>{
     interLinks.push({a:byKey.CEO,b:byKey.PM,ttl:2.4,color:byKey.CEO.ring});
-    runAgent(byKey.PM,{lines:byKey.PM.logs,sayDone:true,pingPool:teamKeys,onDone:()=>{
+    runAgent(byKey.PM,{lines:byKey.PM.logs,pingPool:teamKeys,onDone:()=>{
       setCore("executing");
       let doneCount=0;
       teamKeys.forEach((k,idx)=>{
         setTimeout(()=>{
-          runAgent(byKey[k],{sayDone:true,pingPool:teamKeys,onDone:()=>{
-            if(++doneCount===teamKeys.length)finishMission(names);
+          runAgent(byKey[k],{pingPool:teamKeys,onDone:()=>{
+            if(++doneCount===teamKeys.length)finishMission();
           }});
         },idx*1500);
       });
     }});
   }});
 }
-function finishMission(names){
+function finishMission(){
   setCore("idle");
-  feed(byKey.CEO,"✔ Mission complete — report delivered to the owner");
-  addMsg(T("doneReply")(names),false);
+  feed(byKey.CEO,"Simulation finished — no real work was executed");
+  addMsg(T("doneReply"),false);
   say(T("doneSay"));
   missionActive=false;
   if(cmdQ.length){const q=cmdQ.shift();setTimeout(()=>startMission(q.cmd,q.opts||{}),2000);}
