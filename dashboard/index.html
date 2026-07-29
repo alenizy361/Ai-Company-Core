@@ -237,10 +237,15 @@ html[dir="rtl"] #sendBtn svg{transform:scaleX(-1)}
 #plan{position:fixed;z-index:45;inset-inline:0;bottom:0;max-height:72vh;max-height:72svh;overflow:auto;
   background:var(--bg-2);border-top:1px solid var(--line-2);border-radius:var(--r-sheet) var(--r-sheet) 0 0;
   box-shadow:var(--shadow-top);
-  transform:translateY(105%);transition:transform var(--dur-sheet-in) var(--ease-decel);
+  transform:translateY(105%);visibility:hidden;
+  transition:transform var(--dur-sheet-in) var(--ease-decel),visibility 0s var(--dur-sheet-in);
   padding:10px 16px calc(20px + env(safe-area-inset-bottom,0px))}
-#plan.open{transform:none}
-#plan.closing{transition:transform var(--dur-sheet-out) var(--ease-accel)}
+/* a dismissed sheet must stop existing for touch: translated off-screen it
+   still swallowed taps meant for the composer sitting underneath it */
+#plan.open{transform:none;visibility:visible;
+  transition:transform var(--dur-sheet-in) var(--ease-decel)}
+#plan.closing{transition:transform var(--dur-sheet-out) var(--ease-accel),
+  visibility 0s var(--dur-sheet-out)}
 .grab{width:36px;height:4px;border-radius:4px;background:rgba(255,255,255,0.16);margin:4px auto 14px}
 #planHead{position:relative;padding:6px 4px 12px}
 #planHead .pt{font-size:16px;font-weight:600;color:var(--text-1)}
@@ -442,6 +447,9 @@ const I18N={
       execRunning:"الفريق يشتغل فعلياً على الخادم…",
       execDone:"خلص الفريق فعلياً. النتيجة جاهزة.",execOpen:"افتح النتيجة",
       execFail:"تعذّر إتمام العمل:",execSent:"أرسلت الخطة للتنفيذ الحقيقي — تابع اللوحة.",
+      queuedWait:"في الانتظار",
+      queuedMsg:"مشروعك في الطابور — الخادم ينفّذ مشروعاً سابقاً وسيبدأ فور انتهائه.",
+      resumed:"رجعت لمتابعة مشروع كان شغّالاً.",
       execCancel:"إيقاف التنفيذ",execCancelled:"تم إيقاف التنفيذ فعلياً على الخادم.",
       busyOne:"مشروع واحد في كل مرة — انتظر انتهاء التنفيذ الحالي.",
       stStarted:"بدأ الخطوة",stWrote:"أنتج",stFailed:"فشل",
@@ -463,6 +471,9 @@ const I18N={
       execRunning:"The team is really working on the server…",
       execDone:"The team finished for real. Result is ready.",execOpen:"Open result",
       execFail:"The work could not complete:",execSent:"Plan sent for real execution — watch the board.",
+      queuedWait:"queued",
+      queuedMsg:"Your project is queued — the server is finishing an earlier run and will start it next.",
+      resumed:"Reattached to a run that was already in progress.",
       execCancel:"Stop execution",execCancelled:"Execution was really stopped on the server.",
       busyOne:"One project at a time — wait for the current run to finish.",
       stStarted:"started step",stWrote:"produced",stFailed:"failed",
@@ -563,6 +574,7 @@ async function tryUnlock(){
     TOKEN=code;store.set("rabit_token",code);
     lastAlive=performance.now();refreshBeat();
     hideLock();
+    resumeRun();
     const j=await r.json().catch(()=>null);
     if(j&&j.reply){addMsg(j.reply,false);say(j.reply);}
   }catch(e){lockErr.textContent=T("lockErr");lockInp.classList.add("no");}
@@ -1085,6 +1097,7 @@ async function startProject(plan,title){
     if(!j.project_id){addMsg(T("execFail")+" "+(j.error||j.reply||""),false);resetBoard();setCore();return null;}
     addMsg(T("execSent"),false);
     activeProject={id:j.project_id,title,seen:{}};
+    store.set("rabit_run",j.project_id+" "+(title||""));
     lastPollOk=performance.now();
     runTitle.textContent=title||"";runStep.textContent="";
     runbar.classList.add("show");stopBtn.disabled=false;
@@ -1149,6 +1162,12 @@ async function pollProject(){
     }
   });
   if(runningIdx>=0)runStep.textContent="S"+(runningIdx+1)+"/"+proj.steps.length;
+  else if(proj.status==="queued"){
+    /* the worker runs one project at a time. Without this the board simply sat
+       there looking frozen, with nothing to say the run had not started yet. */
+    runStep.textContent=T("queuedWait");
+    if(!p.saidQueued){p.saidQueued=1;addMsg(T("queuedMsg"),false);}
+  }
 
   /* board + ledger from the derived truth */
   const inPlan=new Set(proj.steps.map(s=>s.agent));
@@ -1174,7 +1193,21 @@ async function pollProject(){
   }
   setTimeout(pollProject,3000);
 }
-function endRun(){runbar.classList.remove("show");}
+function endRun(){runbar.classList.remove("show");store.del("rabit_run");}
+/* A run outlives the page: reloading used to drop the handle on it, so the
+   board looked idle while the server was still working and the owner could
+   queue a second project behind the first without knowing. */
+function resumeRun(){
+  const saved=store.get("rabit_run");if(!saved)return;
+  const sp=saved.indexOf(" ");
+  const id=sp<0?saved:saved.slice(0,sp);
+  if(!id)return;
+  activeProject={id,title:sp<0?"":saved.slice(sp+1),seen:{}};
+  lastPollOk=performance.now();
+  runTitle.textContent=activeProject.title;runStep.textContent="";
+  runbar.classList.add("show");stopBtn.disabled=false;
+  addMsg(T("resumed"),false);setCore();pollProject();
+}
 function projectDone(proj,quiet){
   if(!quiet){addMsg(T("execDone"),false);say(T("execDone"));}
   const url=proj.url||("/deliverables/"+proj.id+"/");
@@ -1227,11 +1260,17 @@ function planCard(plan,title){
 function closePlan(){
   plan_.classList.add("closing");plan_.classList.remove("open");
   planOv.classList.remove("open");
+  pendingPlan=null;      /* dismissing a plan declines it — it never lingers */
+  /* the guard above is what stops a double-submit, so the button never has to
+     stay dead: leaving it disabled was its own way of looking broken */
+  confirmBtn.disabled=false;
 }
 const plan_=document.getElementById("plan");
 planOv.onclick=closePlan;
 confirmBtn.onclick=async()=>{
-  if(!pendingPlan||busy())return;
+  if(!pendingPlan)return;
+  /* never fail silently: a dead button reads as a broken app */
+  if(busy()){addMsg(T("busyOne"),false);closePlan();return;}
   confirmBtn.disabled=true;
   const {plan,title}=pendingPlan;
   pendingPlan=null;              /* a plan is confirmable exactly once */
@@ -1368,6 +1407,7 @@ lastW=stage.clientWidth;lastH=stage.clientHeight;
 requestAnimationFrame(draw);
 probeLive();refreshStats();
 if(!lock.classList.contains("show"))bootStagger();
+if(TOKEN)resumeRun();
 setInterval(()=>{if(!LIVE)probeLive();else if(!activeProject)probeLive();},30000);
 </script>
 </body>
