@@ -65,8 +65,10 @@
                inset 0 0 14px rgba(0,0,0,.65);
   }
   .agent.big .bubble{width:64px;height:64px;font-size:14px}
-  .agent.hot .bubble{box-shadow:0 0 26px color-mix(in srgb,var(--rc) 85%,transparent),inset 0 0 14px rgba(0,0,0,.6);animation:pulse 1.5s ease-in-out infinite}
+  .agent.hot .bubble{box-shadow:0 0 26px color-mix(in srgb,var(--rc) 85%,transparent),inset 0 0 14px rgba(0,0,0,.6);animation:pulse 1.5s ease-in-out infinite,floaty 4.5s ease-in-out infinite}
+  .agent .bubble{animation:floaty 5s ease-in-out infinite}
   @keyframes pulse{50%{box-shadow:0 0 38px color-mix(in srgb,var(--rc) 100%,transparent)}}
+  @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
   .chip{
     font-size:10px;font-weight:800;letter-spacing:.4px;padding:3px 10px;border-radius:999px;
     background:rgba(74,222,128,.13);color:var(--green);border:1px solid rgba(74,222,128,.35);
@@ -264,6 +266,7 @@ function buildNodes(){
     el.innerHTML=`<div class="bubble">${a.key}</div>`+
       (a.chip?`<span class="chip ${a.chipCls||""}">${a.chip}</span>`:``);
     el.onclick=()=>openDrawer(a);
+    el.querySelector(".bubble").style.animationDelay=(Math.random()*3).toFixed(2)+"s";
     nodesEl.appendChild(el);
     a.el=el;
   }
