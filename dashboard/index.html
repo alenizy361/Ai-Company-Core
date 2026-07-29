@@ -3,162 +3,162 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Rabit — AI Company OS</title>
+<title>Rabit AI Company OS</title>
 <style>
   :root{
-    --bg:#05060f; --panel:#0b0e1e; --panel2:#10142a; --line:#1c2342;
-    --text:#e6e9ff; --dim:#8b93c4;
-    --cyan:#22d3ee; --violet:#a78bfa; --green:#34d399; --amber:#fbbf24; --red:#f87171; --gray:#64748b;
+    --bg:#070b16; --card:#0a0f1f; --card2:#0d1326; --line:#1b2340;
+    --text:#e8ecff; --dim:#8b93c4;
+    --cyan:#38e1ff; --violet:#b18cff; --green:#4ade80; --amber:#fbbf24;
+    --red:#fb7185; --blue:#60a5fa; --gray:#64748b;
   }
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
   html,body{height:100%}
   body{
-    background:var(--bg); color:var(--text); overflow-x:hidden;
+    background:var(--bg);color:var(--text);overflow-x:hidden;
     font-family:-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;
-    padding-bottom:calc(env(safe-area-inset-bottom,0px));
+    padding-bottom:calc(120px + env(safe-area-inset-bottom,0px));
   }
-  /* ---------- top bar ---------- */
+  /* ============ header ============ */
   header{
     position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:10px;
-    padding:12px 16px;background:rgba(5,6,15,.82);backdrop-filter:blur(14px);
-    border-bottom:1px solid var(--line);
+    padding:12px 14px;background:rgba(7,11,22,.86);backdrop-filter:blur(14px);
   }
-  .logo{width:34px;height:34px;border-radius:10px;flex:none;
-    background:radial-gradient(circle at 30% 30%,var(--cyan),var(--violet) 70%);
-    box-shadow:0 0 18px rgba(34,211,238,.5);display:grid;place-items:center;font-size:17px}
-  header h1{font-size:16px;font-weight:800;letter-spacing:.4px}
-  header .sub{font-size:10px;color:var(--dim);letter-spacing:2px}
+  .hbtn{
+    width:44px;height:44px;border-radius:14px;border:1px solid var(--line);
+    background:var(--card);color:var(--text);display:grid;place-items:center;
+    font-size:18px;cursor:pointer;flex:none
+  }
+  header h1{font-size:17px;font-weight:800;letter-spacing:.2px;white-space:nowrap}
   .spacer{flex:1}
-  .pill{
-    border:1px solid var(--line);background:var(--panel);color:var(--text);
-    border-radius:999px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer
+  .seg{
+    display:flex;align-items:center;border:1px solid var(--line);border-radius:999px;
+    background:var(--card);padding:3px;flex:none
   }
-  .pill.active{background:var(--cyan);color:#04121a;border-color:var(--cyan)}
-  #modeBadge{font-size:10px;padding:5px 10px;border-radius:999px;font-weight:800;letter-spacing:1px}
-  #modeBadge.live{background:rgba(52,211,153,.15);color:var(--green);border:1px solid rgba(52,211,153,.4)}
-  #modeBadge.demo{background:rgba(251,191,36,.12);color:var(--amber);border:1px solid rgba(251,191,36,.4)}
-  /* ---------- stats strip ---------- */
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px 14px}
-  .stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 8px;text-align:center}
-  .stat b{display:block;font-size:20px}
-  .stat span{font-size:10px;color:var(--dim)}
-  /* ---------- stage ---------- */
-  #stage{position:relative;width:100%;height:min(78vh,640px);min-height:430px}
+  .seg button{
+    border:0;background:transparent;color:var(--dim);font-weight:800;font-size:12px;
+    padding:8px 14px;border-radius:999px;cursor:pointer
+  }
+  .seg button.on{background:#22c55e;color:#032012}
+  .logout{
+    border:1px solid var(--line);background:var(--card);color:var(--text);
+    border-radius:14px;padding:11px 14px;font-size:12px;font-weight:700;cursor:pointer;flex:none
+  }
+  /* ============ board card ============ */
+  .board{
+    margin:10px 12px;background:linear-gradient(180deg,#0a0f22,#080c1a);
+    border:1px solid var(--line);border-radius:24px;overflow:hidden;position:relative;
+  }
+  #stage{position:relative;width:100%;aspect-ratio:10/11.5;min-height:440px;max-height:76vh}
   #space{position:absolute;inset:0;width:100%;height:100%;display:block}
+  /* agent nodes */
   .agent{
     position:absolute;transform:translate(-50%,-50%);z-index:5;
-    display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;
-    transition:transform .2s;user-select:none
+    display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;user-select:none
   }
-  .agent:active{transform:translate(-50%,-50%) scale(.92)}
+  .agent:active{transform:translate(-50%,-50%) scale(.93)}
   .bubble{
-    width:58px;height:58px;border-radius:50%;display:grid;place-items:center;
-    font-weight:800;font-size:13px;letter-spacing:.5px;color:var(--text);
-    background:radial-gradient(circle at 32% 30%,#1b2244,#0a0d1f 75%);
-    border:2px solid var(--c,var(--gray));
-    box-shadow:0 0 16px color-mix(in srgb,var(--c,var(--gray)) 55%,transparent),inset 0 0 12px rgba(0,0,0,.6);
+    width:56px;height:56px;border-radius:50%;display:grid;place-items:center;
+    font-weight:800;font-size:13px;letter-spacing:.5px;color:var(--tc,var(--text));
+    background:radial-gradient(circle at 34% 30%,#141c3a,#070b19 78%);
+    border:2.5px solid var(--rc,var(--gray));
+    box-shadow:0 0 18px color-mix(in srgb,var(--rc,var(--gray)) 55%,transparent),
+               inset 0 0 14px rgba(0,0,0,.65);
   }
-  .agent.working .bubble{animation:breathe 1.6s ease-in-out infinite}
-  @keyframes breathe{0%,100%{box-shadow:0 0 12px color-mix(in srgb,var(--c) 45%,transparent)}50%{box-shadow:0 0 26px color-mix(in srgb,var(--c) 90%,transparent)}}
+  .agent.big .bubble{width:64px;height:64px;font-size:14px}
+  .agent.hot .bubble{box-shadow:0 0 26px color-mix(in srgb,var(--rc) 85%,transparent),inset 0 0 14px rgba(0,0,0,.6);animation:pulse 1.5s ease-in-out infinite}
+  @keyframes pulse{50%{box-shadow:0 0 38px color-mix(in srgb,var(--rc) 100%,transparent)}}
   .chip{
-    font-size:9px;font-weight:800;letter-spacing:.6px;padding:3px 9px;border-radius:999px;
-    background:color-mix(in srgb,var(--c,var(--gray)) 16%,#0000);
-    color:var(--c,var(--gray));border:1px solid color-mix(in srgb,var(--c,var(--gray)) 45%,#0000);
-    white-space:nowrap
+    font-size:10px;font-weight:800;letter-spacing:.4px;padding:3px 10px;border-radius:999px;
+    background:rgba(74,222,128,.13);color:var(--green);border:1px solid rgba(74,222,128,.35);
+    white-space:nowrap;max-width:96px;overflow:hidden;text-overflow:ellipsis
   }
-  .aname{font-size:10px;color:var(--dim);max-width:90px;text-align:center;line-height:1.2}
-  .hint{position:absolute;bottom:8px;inset-inline:0;text-align:center;font-size:11px;color:var(--dim);z-index:6}
-  /* ---------- feed ---------- */
-  section.feed{padding:4px 14px 110px}
-  section.feed h2{font-size:12px;letter-spacing:2px;color:var(--dim);margin:10px 2px}
-  .fitem{
-    display:flex;gap:10px;align-items:flex-start;background:var(--panel);
-    border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:8px;
-    animation:fin .35s ease
+  .chip.amber{background:rgba(251,191,36,.13);color:var(--amber);border-color:rgba(251,191,36,.4)}
+  .caption{
+    text-align:center;color:var(--dim);font-size:12px;padding:12px 16px 16px
   }
-  @keyframes fin{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
-  .fdot{width:8px;height:8px;border-radius:50%;margin-top:5px;flex:none;background:var(--c,var(--cyan));box-shadow:0 0 8px var(--c,var(--cyan))}
-  .fitem .who{font-size:11px;font-weight:800;color:var(--c,var(--cyan))}
-  .fitem .what{font-size:12px;color:var(--text);line-height:1.5}
-  .fitem .t{font-size:9px;color:var(--dim);margin-inline-start:auto;flex:none}
-  /* ---------- drawer ---------- */
+  /* ============ status section ============ */
+  .secTitle{margin:18px 16px 8px;font-size:13px;font-weight:800;letter-spacing:3px;color:var(--dim)}
+  .srow{
+    display:flex;align-items:center;justify-content:space-between;
+    margin:0 12px 8px;background:var(--card);border:1px solid var(--line);
+    border-radius:16px;padding:14px 16px;font-size:14px
+  }
+  .srow b{color:var(--violet);font-weight:800}
+  .srow .g{color:var(--green)} .srow .a{color:var(--amber)}
+  /* ============ drawer ============ */
   #ov{position:fixed;inset:0;background:rgba(3,4,10,.6);backdrop-filter:blur(3px);z-index:40;opacity:0;pointer-events:none;transition:.25s}
   #ov.open{opacity:1;pointer-events:auto}
   #drawer{
     position:fixed;z-index:41;inset-inline:0;bottom:0;max-height:75vh;overflow:auto;
-    background:var(--panel2);border-top:1px solid var(--line);border-radius:22px 22px 0 0;
+    background:var(--card2);border-top:1px solid var(--line);border-radius:22px 22px 0 0;
     transform:translateY(105%);transition:.3s cubic-bezier(.2,.8,.2,1);
-    padding:18px 16px calc(24px + env(safe-area-inset-bottom,0px));
+    padding:16px 16px calc(24px + env(safe-area-inset-bottom,0px));
   }
   #drawer.open{transform:none}
-  #drawer .grab{width:44px;height:4px;border-radius:4px;background:var(--line);margin:0 auto 14px}
-  #drawer .dhead{display:flex;align-items:center;gap:12px;margin-bottom:12px}
-  #drawer .dhead .bubble{width:48px;height:48px;font-size:12px}
+  .grab{width:44px;height:4px;border-radius:4px;background:var(--line);margin:0 auto 14px}
+  .dhead{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+  .dhead .bubble{width:48px;height:48px;font-size:12px}
   #dTitle{font-size:16px;font-weight:800}
   #dRole{font-size:11px;color:var(--dim)}
-  #dStream{display:flex;flex-direction:column;gap:6px;margin-top:10px}
-  .sline{font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.6;color:#b7c1ff;
-    background:#080b18;border:1px solid var(--line);border-radius:10px;padding:8px 10px;direction:ltr;text-align:left}
-  .sline .tool{color:var(--amber);font-weight:700}
   .livebadge{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:var(--red)}
   .livebadge::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--red);animation:blink 1s infinite}
   @keyframes blink{50%{opacity:.2}}
-  /* ---------- chat dock ---------- */
+  #dStream{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+  .sline{font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.6;color:#b7c1ff;
+    background:#070a16;border:1px solid var(--line);border-radius:10px;padding:8px 10px;direction:ltr;text-align:left}
+  .sline .tool{color:var(--amber);font-weight:700}
+  /* ============ chat dock ============ */
   #dock{
     position:fixed;z-index:35;inset-inline:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));
-    background:rgba(11,14,30,.92);backdrop-filter:blur(16px);
+    background:rgba(10,15,31,.94);backdrop-filter:blur(16px);
     border:1px solid var(--line);border-radius:20px;padding:10px;
   }
   #msgs{max-height:34vh;overflow:auto;display:none;flex-direction:column;gap:8px;padding:4px 2px 10px}
   #msgs.open{display:flex}
   .msg{max-width:82%;padding:9px 13px;border-radius:16px;font-size:13px;line-height:1.5}
   .msg.me{align-self:flex-end;background:linear-gradient(135deg,var(--cyan),#0ea5c9);color:#04121a;border-end-end-radius:4px;font-weight:600}
-  .msg.ai{align-self:flex-start;background:var(--panel);border:1px solid var(--line);border-end-start-radius:4px}
+  .msg.ai{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-end-start-radius:4px}
   html[dir="rtl"] .msg.me{align-self:flex-start}
   html[dir="rtl"] .msg.ai{align-self:flex-end}
   #dockRow{display:flex;gap:8px;align-items:center}
-  #inp{
-    flex:1;background:#080b18;border:1px solid var(--line);border-radius:14px;
-    color:var(--text);padding:12px 14px;font-size:14px;outline:none;min-width:0
-  }
+  #inp{flex:1;background:#070a16;border:1px solid var(--line);border-radius:14px;
+    color:var(--text);padding:12px 14px;font-size:14px;outline:none;min-width:0}
   #inp:focus{border-color:var(--cyan)}
   .rbtn{width:46px;height:46px;flex:none;border-radius:14px;border:1px solid var(--line);
-    background:var(--panel);color:var(--text);font-size:18px;cursor:pointer;display:grid;place-items:center}
+    background:var(--card);color:var(--text);font-size:18px;cursor:pointer;display:grid;place-items:center}
   .rbtn.primary{background:var(--cyan);color:#04121a;border-color:var(--cyan)}
   .rbtn.mic.on{background:var(--red);border-color:var(--red);color:#fff;animation:blink 1.2s infinite}
   .rbtn:disabled{opacity:.35}
   #voiceNote{font-size:10px;color:var(--dim);text-align:center;padding-top:6px;display:none}
+  #modeBadge{position:absolute;top:12px;inset-inline-start:14px;z-index:6;
+    font-size:9px;padding:4px 10px;border-radius:999px;font-weight:800;letter-spacing:1.5px}
+  #modeBadge.live{background:rgba(74,222,128,.15);color:var(--green);border:1px solid rgba(74,222,128,.4)}
+  #modeBadge.demo{background:rgba(251,191,36,.12);color:var(--amber);border:1px solid rgba(251,191,36,.4)}
 </style>
 </head>
 <body>
 
 <header>
-  <div class="logo">🐇</div>
-  <div>
-    <h1>RABIT</h1>
-    <div class="sub" data-i18n="sub">مركز القيادة العصبي</div>
-  </div>
+  <button class="hbtn">☰</button>
+  <h1>Rabit AI Company OS</h1>
   <div class="spacer"></div>
-  <span id="modeBadge" class="demo">DEMO</span>
-  <button class="pill" id="langBtn">EN</button>
+  <div class="seg">
+    <button id="btnAR">AR</button>
+    <button id="btnEN" class="on">EN</button>
+  </div>
+  <button class="logout" data-i18n="logout">Log out</button>
 </header>
 
-<div class="stats">
-  <div class="stat"><b id="stAgents">–</b><span data-i18n="agents">الموظفون</span></div>
-  <div class="stat"><b id="stWorking">–</b><span data-i18n="working">يعملون الآن</span></div>
-  <div class="stat"><b id="stTasks">–</b><span data-i18n="tasks">مهام نشطة</span></div>
-  <div class="stat"><b id="stDone">–</b><span data-i18n="done">منجز اليوم</span></div>
+<div class="board">
+  <span id="modeBadge" class="demo">DEMO</span>
+  <div id="stage"><canvas id="space"></canvas><div id="nodes"></div></div>
+  <div class="caption" data-i18n="caption">Click any agent on the board to see what it's saying and doing</div>
 </div>
 
-<div id="stage">
-  <canvas id="space"></canvas>
-  <div class="hint" data-i18n="hint">اضغط على أي موظف لمشاهدة بثه المباشر</div>
-</div>
-
-<section class="feed">
-  <h2 data-i18n="feed">البث المباشر للشركة</h2>
-  <div id="feedList"></div>
-</section>
+<div class="secTitle" data-i18n="coreStatus">AI CORE STATUS</div>
+<div class="srow"><span data-i18n="central">Central core</span><b id="coreState" data-i18n="planning">Planning</b></div>
+<div class="srow"><span data-i18n="agents">Agents</span><span class="g" id="stAgents">11</span></div>
+<div class="srow"><span data-i18n="working">Working now</span><span class="a" id="stWorking">6</span></div>
 
 <div id="ov"></div>
 <div id="drawer">
@@ -172,7 +172,7 @@
     <div class="spacer"></div>
     <span class="livebadge" id="dLive">LIVE</span>
   </div>
-  <div class="chip" id="dTask" style="display:inline-block">—</div>
+  <span class="chip" id="dTask">—</span>
   <div id="dStream"></div>
 </div>
 
@@ -180,57 +180,54 @@
   <div id="msgs"></div>
   <div id="dockRow">
     <button class="rbtn mic" id="micBtn" title="voice">🎙️</button>
-    <input id="inp" data-i18n-ph="ask" placeholder="اكتب أمرًا لشركتك…" autocomplete="off">
+    <input id="inp" data-i18n-ph="ask" placeholder="Command your company…" autocomplete="off">
     <button class="rbtn primary" id="sendBtn">➤</button>
   </div>
-  <div id="voiceNote" data-i18n="voiceNote">🎙️ الصوت يتطلب فتح الموقع عبر https</div>
+  <div id="voiceNote" data-i18n="voiceNote">🎙️ Voice requires opening the site over https</div>
 </div>
 
 <script>
 /* ================= i18n ================= */
-const I18N = {
-  ar:{sub:"مركز القيادة العصبي",agents:"الموظفون",working:"يعملون الآن",tasks:"مهام نشطة",done:"منجز اليوم",
-      hint:"اضغط على أي موظف لمشاهدة بثه المباشر",feed:"البث المباشر للشركة",ask:"اكتب أمرًا لشركتك…",
+const I18N={
+  ar:{logout:"تسجيل الخروج",caption:"اضغط على أي موظف لتشاهد ماذا يقول ويفعل",
+      coreStatus:"حالة النواة",central:"النواة المركزية",planning:"يخطط",
+      agents:"الموظفون",working:"يعملون الآن",ask:"اكتب أمرًا لشركتك…",
       voiceNote:"🎙️ الصوت يتطلب فتح الموقع عبر https",
-      demoReply:"وصلني أمرك يا مدير ✅ (وضع العرض — اربطني بالسيرفر لأنفّذ فعليًا). سأكلف الفريق فور تفعيل الاتصال.",
-      listening:"أستمع إليك…"},
-  en:{sub:"NEURAL COMMAND CENTER",agents:"Agents",working:"Working",tasks:"Active tasks",done:"Done today",
-      hint:"Tap any agent to watch their live stream",feed:"COMPANY LIVE FEED",ask:"Command your company…",
+      demoReply:"وصلني أمرك يا مدير ✅ (وضع العرض — عند الربط بالسيرفر أنفّذ فعليًا وأكلف الفريق).",
+      listening:"أستمع إليك…",task:"المهمة: بناء بوابة القيادة"},
+  en:{logout:"Log out",caption:"Click any agent on the board to see what it's saying and doing",
+      coreStatus:"AI CORE STATUS",central:"Central core",planning:"Planning",
+      agents:"Agents",working:"Working now",ask:"Command your company…",
       voiceNote:"🎙️ Voice requires opening the site over https",
       demoReply:"Command received ✅ (demo mode — connect me to the server to execute for real).",
-      listening:"Listening…"}
+      listening:"Listening…",task:"Task: build the command portal"}
 };
-let lang = "ar";
+let lang="en";
 function applyLang(){
-  document.documentElement.lang = lang;
-  document.documentElement.dir  = lang==="ar" ? "rtl":"ltr";
-  document.getElementById("langBtn").textContent = lang==="ar" ? "EN":"عربي";
+  document.documentElement.lang=lang;
+  document.documentElement.dir=lang==="ar"?"rtl":"ltr";
+  btnAR.classList.toggle("on",lang==="ar");btnEN.classList.toggle("on",lang==="en");
   document.querySelectorAll("[data-i18n]").forEach(el=>{const k=el.dataset.i18n;if(I18N[lang][k])el.textContent=I18N[lang][k];});
   document.querySelectorAll("[data-i18n-ph]").forEach(el=>{const k=el.dataset.i18nPh;if(I18N[lang][k])el.placeholder=I18N[lang][k];});
 }
-document.getElementById("langBtn").onclick=()=>{lang=lang==="ar"?"en":"ar";applyLang();};
+btnAR.onclick=()=>{lang="ar";applyLang();};
+btnEN.onclick=()=>{lang="en";applyLang();};
 
-/* ================= data ================= */
-const COLORS={working:"var(--green)",running:"var(--amber)",idle:"var(--gray)",paused:"var(--violet)",error:"var(--red)"};
-const RAW={working:"#34d399",running:"#fbbf24",idle:"#64748b",paused:"#a78bfa",error:"#f87171"};
+/* ================= roster (matches the reference board) ================= */
+/* pos = % of stage. ring/text colors + chips mirror the screenshot */
 let AGENTS=[
-  {key:"CEO", ar:"الرئيس التنفيذي",  en:"CEO",              status:"working"},
-  {key:"CS",  ar:"رئيس الموظفين",    en:"Chief of Staff",   status:"running"},
-  {key:"OPS", ar:"مدير العمليات",    en:"Operations Lead",  status:"idle"},
-  {key:"ENG", ar:"مدير الهندسة",     en:"Engineering Lead", status:"working"},
-  {key:"FE",  ar:"مهندس الواجهات",   en:"Frontend Engineer",status:"running"},
-  {key:"BE",  ar:"مهندس الأنظمة",    en:"Backend Engineer", status:"idle"},
-  {key:"QA",  ar:"مراقب الجودة",     en:"QA Reviewer",      status:"paused"},
-  {key:"UX",  ar:"مصمم التجربة",     en:"UX Designer",      status:"idle"},
+  {key:"CEO",x:50,y:7.5, ring:"#34d399",tc:"#b18cff",chip:"done",big:1,hot:1,bolt:"#b18cff",ar:"الرئيس التنفيذي",en:"CEO"},
+  {key:"FE", x:24,y:14,  ring:"#38e1ff",tc:"#38e1ff",chip:"done",hot:1,bolt:"#38e1ff",ar:"مهندس الواجهات",en:"Frontend"},
+  {key:"QA", x:75,y:15.5,ring:"#34d399",tc:"#38e1ff",chip:"done",hot:1,bolt:"#38e1ff",ar:"مراقب الجودة",en:"QA"},
+  {key:"BE", x:15,y:33,  ring:"#38e1ff",tc:"#38e1ff",chip:"done",hot:1,bolt:"#38e1ff",ar:"مهندس الأنظمة",en:"Backend"},
+  {key:"SEC",x:85,y:37.5,ring:"#fb7185",tc:"#fb7185",chip:null, ar:"مسؤول الأمن",en:"Security"},
+  {key:"DB", x:14,y:55,  ring:"#38e1ff",tc:"#38e1ff",chip:"done",hot:1,bolt:"#38e1ff",ar:"مهندس البيانات",en:"Database"},
+  {key:"AN", x:85,y:58,  ring:"#34d399",tc:"#34d399",chip:null, ar:"محلل البيانات",en:"Analytics"},
+  {key:"UX", x:17,y:74,  ring:"#60a5fa",tc:"#60a5fa",chip:null, ar:"مصمم التجربة",en:"UX"},
+  {key:"MKT",x:83,y:76,  ring:"#34d399",tc:"#34d399",chip:null, ar:"مدير التسويق",en:"Marketing"},
+  {key:"PM", x:31,y:90,  ring:"#fbbf24",tc:"#60a5fa",chip:"command r…",chipCls:"amber",hot:1,bolt:"#38e1ff",ar:"مدير المشاريع",en:"PM"},
+  {key:"FIN",x:69,y:91,  ring:"#fbbf24",tc:"#fbbf24",chip:null, ar:"المدير المالي",en:"Finance"},
 ];
-const DEMO_ACTS={
-  ar:[["CEO","يراجع خطة الأسبوع ويوزع الأولويات"],["ENG","يدمج تعديلات الواجهة الجديدة"],["FE","يبني مؤثرات النواة المتوهجة"],
-      ["CS","ينسق اجتماع المتابعة اليومي"],["BE","يفحص نقاط الربط مع الخادم"],["QA","ينتظر نسخة جديدة للفحص"],
-      ["CEO","اعتمد تقرير الإنجاز وأرسله للمالك"],["UX","يحسّن تباعد العناصر على الجوال"]],
-  en:[["CEO","Reviewing weekly plan and assigning priorities"],["ENG","Merging the new UI changes"],["FE","Building the glowing core effects"],
-      ["CS","Coordinating the daily sync"],["BE","Probing server API endpoints"],["QA","Waiting for a new build to test"],
-      ["CEO","Approved the progress report"],["UX","Polishing mobile spacing"]]
-};
 const DEMO_STREAM=[
   '<span class="tool">▶ Read</span> COMPANY.md',
   '<span class="tool">▶ Bash</span> paperclipai issue list --status in_progress',
@@ -246,152 +243,159 @@ let LIVE=false;
 async function probeLive(){
   try{
     const r=await fetch("/api/health",{signal:AbortSignal.timeout(2500)});
-    if(!r.ok) throw 0;
+    if(!r.ok)throw 0;
     LIVE=true;
-    const b=document.getElementById("modeBadge");b.textContent="LIVE";b.className="live";
-    try{
-      const a=await fetch("/api/agents",{signal:AbortSignal.timeout(3000)});
-      if(a.ok){
-        const j=await a.json();
-        const list=Array.isArray(j)?j:(j.agents||j.items||[]);
-        if(list.length){
-          AGENTS=list.map(x=>({key:(x.name||"?").split(/\s+/).map(w=>w[0]).join("").slice(0,3).toUpperCase(),
-            ar:x.title||x.name,en:x.name,status:(x.status==="running"?"running":x.status==="paused"?"paused":x.status==="error"?"error":x.status==="idle"?"idle":"working")}));
-          layoutAgents();
-        }
-      }
-    }catch(e){}
-  }catch(e){/* demo mode stays */}
-  refreshStats();
+    modeBadge.textContent="LIVE";modeBadge.className="live";
+    coreState.textContent=lang==="ar"?"متصل":"Online";
+  }catch(e){}
+  stAgents.textContent=AGENTS.length;
+  stWorking.textContent=AGENTS.filter(a=>a.hot).length;
 }
 
-/* ================= stage / canvas ================= */
-const cv=document.getElementById("space"),ctx=cv.getContext("2d");
-let W,H,CX,CY,R,nodePos=[];
-const stars=[],pts=[];let particles=[];
-function resize(){
-  const st=document.getElementById("stage");
-  W=cv.width=st.clientWidth*devicePixelRatio;H=cv.height=st.clientHeight*devicePixelRatio;
-  cv.style.width=st.clientWidth+"px";cv.style.height=st.clientHeight+"px";
-  CX=W/2;CY=H*0.44;R=Math.min(W,H)*0.20;
-  stars.length=0;for(let i=0;i<120;i++)stars.push({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.4*devicePixelRatio,tw:Math.random()*Math.PI*2});
-  pts.length=0;for(let i=0;i<64;i++){const th=Math.acos(2*Math.random()-1),ph=Math.random()*Math.PI*2;pts.push({th,ph});}
-  layoutAgents();
-}
-function layoutAgents(){
-  document.querySelectorAll(".agent").forEach(e=>e.remove());
-  nodePos=[];
-  const st=document.getElementById("stage");
-  const n=AGENTS.length,orbit=Math.min(st.clientWidth,st.clientHeight)*0.40;
-  AGENTS.forEach((a,i)=>{
-    const ang=-Math.PI/2+i*(Math.PI*2/n);
-    const x=st.clientWidth/2+Math.cos(ang)*orbit;
-    const y=st.clientHeight*0.44+Math.sin(ang)*orbit*0.92;
-    nodePos.push({x:x*devicePixelRatio,y:y*devicePixelRatio,a});
+/* ================= build nodes ================= */
+const stage=document.getElementById("stage"),nodesEl=document.getElementById("nodes");
+function buildNodes(){
+  nodesEl.innerHTML="";
+  for(const a of AGENTS){
     const el=document.createElement("div");
-    el.className="agent "+(a.status==="working"||a.status==="running"?"working":"");
-    el.style.setProperty("--c",RAW[a.status]||RAW.idle);
-    el.style.left=x+"px";el.style.top=y+"px";
-    el.innerHTML=`<div class="bubble">${a.key}</div><span class="chip">${a.status}</span><span class="aname">${lang==="ar"?a.ar:a.en}</span>`;
+    el.className="agent"+(a.big?" big":"")+(a.hot?" hot":"");
+    el.style.setProperty("--rc",a.ring);el.style.setProperty("--tc",a.tc);
+    el.style.left=a.x+"%";el.style.top=a.y+"%";
+    el.innerHTML=`<div class="bubble">${a.key}</div>`+
+      (a.chip?`<span class="chip ${a.chipCls||""}">${a.chip}</span>`:``);
     el.onclick=()=>openDrawer(a);
-    st.appendChild(el);
-  });
+    nodesEl.appendChild(el);
+    a.el=el;
+  }
 }
-let voiceAmp=0,speakAmp=0,t=0;
+
+/* ================= canvas ================= */
+const cv=document.getElementById("space"),ctx=cv.getContext("2d");
+let W,H,CX,CY,R,stars=[],mesh=[];
+let voiceAmp=0,speakAmp=0,t=0,boltSeed=0;
+function resize(){
+  W=cv.width=stage.clientWidth*devicePixelRatio;
+  H=cv.height=stage.clientHeight*devicePixelRatio;
+  cv.style.width=stage.clientWidth+"px";cv.style.height=stage.clientHeight+"px";
+  CX=W/2;CY=H*0.465;R=Math.min(W*0.30,H*0.24);
+  stars=[];for(let i=0;i<110;i++)stars.push({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.3*devicePixelRatio,tw:Math.random()*7});
+  mesh=[];for(let i=0;i<56;i++){const th=Math.acos(2*Math.random()-1),ph=Math.random()*Math.PI*2;mesh.push({th,ph});}
+}
+function nodePx(a){return{x:a.x/100*W,y:a.y/100*H};}
+/* jagged electric bolt */
+function bolt(x1,y1,x2,y2,color,seed){
+  const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy),steps=Math.max(5,Math.floor(len/(34*devicePixelRatio)));
+  const nx=-dy/len,ny=dx/len;
+  let px=x1,py=y1;
+  ctx.strokeStyle=color;ctx.shadowColor=color;ctx.shadowBlur=14*devicePixelRatio;
+  ctx.lineCap="round";
+  for(let i=1;i<=steps;i++){
+    const u=i/steps;
+    const wob=(i===steps?0:(Math.sin(seed*13.7+i*97.3)*0.5+Math.sin(seed*7.1+i*31.7)*0.5))*len*0.09;
+    const x=x1+dx*u+nx*wob, y=y1+dy*u+ny*wob;
+    ctx.lineWidth=(2.8-1.8*u+Math.sin(seed+i)*0.5)*devicePixelRatio;
+    ctx.globalAlpha=0.55+0.35*Math.sin(seed*3+i);
+    ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(x,y);ctx.stroke();
+    if(i%2===0&&Math.sin(seed*5+i*2.3)>0.55){
+      ctx.globalAlpha=0.5;ctx.fillStyle=color;
+      ctx.beginPath();ctx.arc(x,y,(3.2+Math.sin(seed+i)*1.5)*devicePixelRatio,0,7);ctx.fill();
+    }
+    px=x;py=y;
+  }
+  ctx.globalAlpha=1;ctx.shadowBlur=0;
+}
 function draw(){
-  t+=0.008;
+  t+=0.008;if((t*60|0)%5===0)boltSeed=Math.random()*1000;
   ctx.clearRect(0,0,W,H);
-  // stars
-  for(const s of stars){s.tw+=0.02;ctx.globalAlpha=0.3+0.3*Math.sin(s.tw);ctx.fillStyle="#9fb4ff";ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,7);ctx.fill();}
+  /* stars */
+  for(const s of stars){s.tw+=0.02;ctx.globalAlpha=0.25+0.3*Math.sin(s.tw);ctx.fillStyle="#9fb4ff";ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,7);ctx.fill();}
   ctx.globalAlpha=1;
-  const amp=1+Math.sin(t*2)*0.03+voiceAmp*0.45+speakAmp*0.25;
+  const amp=1+Math.sin(t*2)*0.025+voiceAmp*0.4+speakAmp*0.2;
   const r=R*amp;
-  // connectors
-  for(const np of nodePos){
-    const a=np.a,c=RAW[a.status]||RAW.idle;
-    const act=a.status==="working"||a.status==="running";
-    ctx.strokeStyle=c;ctx.globalAlpha=act?0.5:0.15;ctx.lineWidth=(act?1.6:1)*devicePixelRatio;
-    ctx.beginPath();
-    const mx=(CX+np.x)/2+Math.sin(t*3+np.x)*8*devicePixelRatio,my=(CY+np.y)/2+Math.cos(t*2+np.y)*8*devicePixelRatio;
-    ctx.moveTo(CX,CY);ctx.quadraticCurveTo(mx,my,np.x,np.y);ctx.stroke();
-    if(act&&Math.random()<0.06)particles.push({t:0,from:{x:CX,y:CY},mid:{x:mx,y:my},to:np,c});
+  /* bolts (behind core) */
+  for(const a of AGENTS){
+    if(!a.bolt)continue;
+    const p=nodePx(a);
+    const ang=Math.atan2(p.y-CY,p.x-CX);
+    bolt(CX+Math.cos(ang)*r*1.05,CY+Math.sin(ang)*r*1.0,p.x,p.y,a.bolt,boltSeed+a.x);
+  }
+  /* faint lines to passive nodes */
+  for(const a of AGENTS){
+    if(a.bolt)continue;const p=nodePx(a);
+    ctx.strokeStyle=a.ring;ctx.globalAlpha=0.14;ctx.lineWidth=1*devicePixelRatio;
+    ctx.beginPath();ctx.moveTo(CX,CY);ctx.lineTo(p.x,p.y);ctx.stroke();ctx.globalAlpha=1;
+  }
+  /* platform ellipses under core */
+  ctx.strokeStyle="rgba(56,225,255,0.35)";
+  for(let i=0;i<3;i++){
+    ctx.globalAlpha=0.35-i*0.1;ctx.lineWidth=(2-i*0.5)*devicePixelRatio;
+    ctx.beginPath();ctx.ellipse(CX,CY+r*1.55,r*(0.85-i*0.16),r*(0.22-i*0.045),0,0,7);ctx.stroke();
   }
   ctx.globalAlpha=1;
-  particles=particles.filter(p=>p.t<1);
-  for(const p of particles){
-    p.t+=0.02;const u=p.t,iu=1-u;
-    const x=iu*iu*p.from.x+2*iu*u*p.mid.x+u*u*p.to.x;
-    const y=iu*iu*p.from.y+2*iu*u*p.mid.y+u*u*p.to.y;
-    ctx.fillStyle=p.c;ctx.shadowColor=p.c;ctx.shadowBlur=12;ctx.beginPath();ctx.arc(x,y,2.2*devicePixelRatio,0,7);ctx.fill();ctx.shadowBlur=0;
-  }
-  // core glow
-  const g=ctx.createRadialGradient(CX,CY,r*0.1,CX,CY,r*2.1);
-  g.addColorStop(0,"rgba(167,139,250,0.34)");g.addColorStop(0.5,"rgba(34,211,238,0.10)");g.addColorStop(1,"transparent");
-  ctx.fillStyle=g;ctx.beginPath();ctx.arc(CX,CY,r*2.1,0,7);ctx.fill();
-  // wireframe sphere
-  ctx.strokeStyle="rgba(140,160,255,0.35)";ctx.lineWidth=1*devicePixelRatio;
+  /* nebula core */
+  let g=ctx.createRadialGradient(CX,CY,0,CX,CY,r*1.9);
+  g.addColorStop(0,"rgba(216,180,254,0.55)");
+  g.addColorStop(0.35,"rgba(168,85,247,0.35)");
+  g.addColorStop(0.62,"rgba(56,225,255,0.14)");
+  g.addColorStop(1,"transparent");
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(CX,CY,r*1.9,0,7);ctx.fill();
+  g=ctx.createRadialGradient(CX-r*0.3,CY-r*0.25,0,CX,CY,r);
+  g.addColorStop(0,"rgba(244,214,255,0.85)");
+  g.addColorStop(0.45,"rgba(147,90,235,0.55)");
+  g.addColorStop(0.8,"rgba(23,37,84,0.9)");
+  g.addColorStop(1,"rgba(10,15,35,0.95)");
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(CX,CY,r,0,7);ctx.fill();
+  /* mesh inside sphere */
   const proj=[];
-  for(const p of pts){
-    const th=p.th,ph=p.ph+t;
-    const x3=Math.sin(th)*Math.cos(ph),y3=Math.cos(th),z3=Math.sin(th)*Math.sin(ph);
-    proj.push({x:CX+x3*r,y:CY+y3*r*0.94,z:z3});
+  for(const p of mesh){
+    const ph=p.ph+t;
+    const x3=Math.sin(p.th)*Math.cos(ph),y3=Math.cos(p.th),z3=Math.sin(p.th)*Math.sin(ph);
+    proj.push({x:CX+x3*r*0.92,y:CY+y3*r*0.86,z:z3});
   }
+  ctx.strokeStyle="rgba(200,215,255,0.5)";ctx.lineWidth=0.8*devicePixelRatio;
   for(let i=0;i<proj.length;i++)for(let j=i+1;j<proj.length;j++){
     const a=proj[i],b=proj[j],dx=a.x-b.x,dy=a.y-b.y;
-    if(dx*dx+dy*dy<r*r*0.34){ctx.globalAlpha=0.10+0.12*((a.z+b.z)/2+1);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
+    if(dx*dx+dy*dy<r*r*0.30){ctx.globalAlpha=0.07+0.13*((a.z+b.z)/2+1)/2;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
   }
   ctx.globalAlpha=1;
-  for(const p of proj){ctx.fillStyle=p.z>0?"#cfe3ff":"#5b6db8";ctx.globalAlpha=0.5+p.z*0.4;ctx.beginPath();ctx.arc(p.x,p.y,1.7*devicePixelRatio,0,7);ctx.fill();}
+  for(const p of proj){if(p.z>-0.2){ctx.fillStyle="#e7efff";ctx.globalAlpha=0.35+p.z*0.45;ctx.beginPath();ctx.arc(p.x,p.y,1.6*devicePixelRatio,0,7);ctx.fill();}}
   ctx.globalAlpha=1;
-  // ring + label
-  ctx.strokeStyle="rgba(34,211,238,0.55)";ctx.lineWidth=1.5*devicePixelRatio;
-  ctx.beginPath();ctx.arc(CX,CY,r*1.12,0,7);ctx.stroke();
-  ctx.fillStyle="#eaf0ff";ctx.textAlign="center";
-  ctx.font=`800 ${20*devicePixelRatio}px -apple-system,Segoe UI,Arial`;
-  ctx.shadowColor="#22d3ee";ctx.shadowBlur=16;
-  ctx.fillText("RABIT",CX,CY-4*devicePixelRatio);
-  ctx.shadowBlur=0;ctx.fillStyle="#8b93c4";
-  ctx.font=`600 ${8.5*devicePixelRatio}px -apple-system,Segoe UI,Arial`;
-  ctx.fillText("A I   C O R E",CX,CY+14*devicePixelRatio);
+  /* sphere ring */
+  ctx.strokeStyle="rgba(56,225,255,0.6)";ctx.lineWidth=1.6*devicePixelRatio;
+  ctx.beginPath();ctx.arc(CX,CY,r,0,7);ctx.stroke();
+  /* labels */
+  ctx.textAlign="center";
+  ctx.fillStyle="#ffffff";ctx.shadowColor="rgba(255,255,255,.8)";ctx.shadowBlur=14*devicePixelRatio;
+  ctx.font=`800 ${r*0.30}px -apple-system,Segoe UI,Arial`;
+  ctx.fillText("RABIT",CX,CY-r*0.02);
+  ctx.shadowBlur=0;
+  ctx.fillStyle="#dfe7ff";ctx.font=`700 ${r*0.125}px -apple-system,Segoe UI,Arial`;
+  ctx.fillText("A I   C O R E",CX,CY+r*0.20);
+  ctx.fillStyle="rgba(200,212,255,0.75)";ctx.font=`600 ${r*0.075}px -apple-system,Segoe UI,Arial`;
+  ctx.fillText("• N E U R A L   C O M M A N D   C E N T E R •",CX,CY+r*0.38);
   voiceAmp*=0.94;speakAmp*=0.90;
   requestAnimationFrame(draw);
 }
-addEventListener("resize",resize);
-
-/* ================= stats + feed ================= */
-function refreshStats(){
-  const w=AGENTS.filter(a=>a.status==="working"||a.status==="running").length;
-  stAgents.textContent=AGENTS.length;stWorking.textContent=w;
-  stTasks.textContent=LIVE?"—":3+Math.floor(Math.random()*3);
-  stDone.textContent=LIVE?"—":5+Math.floor(Math.random()*4);
-}
-function pushFeed(){
-  const acts=DEMO_ACTS[lang],[who,what]=acts[Math.floor(Math.random()*acts.length)];
-  const ag=AGENTS.find(a=>a.key===who)||AGENTS[0];
-  const el=document.createElement("div");el.className="fitem";el.style.setProperty("--c",RAW[ag.status]||RAW.idle);
-  const now=new Date().toLocaleTimeString(lang==="ar"?"ar-SA":"en-US",{hour:"2-digit",minute:"2-digit"});
-  el.innerHTML=`<div class="fdot"></div><div><div class="who">${lang==="ar"?ag.ar:ag.en}</div><div class="what">${what}</div></div><div class="t">${now}</div>`;
-  feedList.prepend(el);
-  while(feedList.children.length>14)feedList.lastChild.remove();
-}
+addEventListener("resize",()=>{resize();});
 
 /* ================= drawer ================= */
 let streamTimer=null;
 function openDrawer(a){
-  dBubble.textContent=a.key;dBubble.style.setProperty("--c",RAW[a.status]||RAW.idle);
-  dTitle.textContent=lang==="ar"?a.ar:a.en;dRole.textContent=a.en+" • "+a.status;
-  dTask.textContent=lang==="ar"?"المهمة الحالية: بناء بوابة القيادة":"Current task: Build the command portal";
-  dLive.style.display=(a.status==="working"||a.status==="running")?"inline-flex":"none";
+  dBubble.textContent=a.key;
+  dBubble.style.setProperty("--rc",a.ring);dBubble.style.setProperty("--tc",a.tc);
+  dTitle.textContent=lang==="ar"?a.ar:a.en;
+  dRole.textContent=a.en+(a.chip?" • "+a.chip:"");
+  dTask.textContent=I18N[lang].task;
+  dLive.style.display=a.hot?"inline-flex":"none";
   dStream.innerHTML="";let i=0;
   clearInterval(streamTimer);
-  const feedLine=()=>{
+  const put=()=>{
     const l=document.createElement("div");l.className="sline";
     l.innerHTML=DEMO_STREAM[i%DEMO_STREAM.length];i++;
     dStream.appendChild(l);while(dStream.children.length>9)dStream.firstChild.remove();
-    drawer.scrollTop=drawer.scrollHeight;
   };
-  feedLine();feedLine();
-  streamTimer=setInterval(feedLine,1400);
+  put();put();
+  streamTimer=setInterval(put,1400);
   ov.classList.add("open");drawer.classList.add("open");
 }
 ov.onclick=()=>{ov.classList.remove("open");drawer.classList.remove("open");clearInterval(streamTimer);};
@@ -411,7 +415,7 @@ function speak(txt){
     speechSynthesis.speak(u);
   }catch(e){}
 }
-async function send(){
+function send(){
   const v=inp.value.trim();if(!v)return;
   inp.value="";addMsg(v,true);
   setTimeout(()=>{const r=I18N[lang].demoReply;addMsg(r,false);speak(r);},700);
@@ -436,7 +440,7 @@ micBtn.onclick=async()=>{
     recOn=true;micBtn.classList.add("on");inp.placeholder=I18N[lang].listening;loop();
     rec.onresult=e=>{let s="";for(const r of e.results)s+=r[0].transcript;inp.value=s;};
     rec.onend=()=>{recOn=false;micBtn.classList.remove("on");
-      stream.getTracks().forEach(t=>t.stop());applyLang();
+      stream.getTracks().forEach(tr=>tr.stop());applyLang();
       if(inp.value.trim())send();};
     rec.onerror=()=>{recOn=false;micBtn.classList.remove("on");applyLang();};
     rec.start();
@@ -444,11 +448,7 @@ micBtn.onclick=async()=>{
 };
 
 /* ================= boot ================= */
-applyLang();resize();draw();refreshStats();
-pushFeed();pushFeed();pushFeed();
-setInterval(pushFeed,4500);
-setInterval(refreshStats,7000);
-probeLive();
+applyLang();buildNodes();resize();draw();probeLive();
 </script>
 </body>
 </html>
