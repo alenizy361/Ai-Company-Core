@@ -96,6 +96,7 @@ test('voice providers: session-gated, honest 503s, correct upstream shapes', asy
   assert.equal(Buffer.from(await tts.arrayBuffer()).toString(), 'FAKE_MP3_BYTES');
   const fishCall = captured.find((c) => c.url.includes('fish.audio'));
   assert.equal((fishCall!.init!.headers as Record<string, string>).Authorization, 'Bearer fish-key');
+  assert.equal((fishCall!.init!.headers as Record<string, string>).model, 's2.1-pro-free', 'free tier is the default model');
 
   // LiveKit token: valid HS256 JWT with room grant, verifiable signature.
   const lk = await fetch(`${keyed.base}/api/voice/livekit-token?${auth}`, { method: 'POST' });

@@ -163,7 +163,14 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
     try {
       const upstream = await fetchImpl('https://api.fish.audio/v1/tts', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          // s2.1-pro-free: Fish Audio's free API tier (through Aug 2026) —
+          // works with a keyed account holding zero API credit. Owners with
+          // paid credit can pick a paid model via FISH_AUDIO_MODEL.
+          model: env.FISH_AUDIO_MODEL ?? 's2.1-pro-free',
+        },
         body: JSON.stringify({ text: text.slice(0, 2000), format: 'mp3', latency: 'balanced' }),
       });
       if (!upstream.ok || !upstream.body) {
