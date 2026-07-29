@@ -24,6 +24,8 @@ export interface SystemConfig {
   maxPlanSteps: number;
   toolTimeoutMs: number;
   toolResultInlineLimit: number;
+  modelTiers: Record<string, string>;
+  converseTier: string;
 }
 
 export interface Paths {
@@ -85,6 +87,8 @@ export interface AgentConfigEntry {
   color: string;
   reportsTo: string | null;
   board: { x: number; y: number };
+  /** Default model tier (lowest-cost capable); the owner's override wins. */
+  tier: 'fast' | 'balanced' | 'reasoning' | 'custom';
 }
 
 export function loadAgentsConfig(): AgentConfigEntry[] {

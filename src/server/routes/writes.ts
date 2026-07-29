@@ -26,6 +26,24 @@ export function registerWriteRoutes(router: Router, db: Db): void {
     json(res, 201, objective);
   });
 
+  router.post('/api/agents/:key/model', ({ res, params, body }) => {
+    const b = body as { tier?: string; customModel?: string; actor?: string } | undefined;
+    const tier = String(b?.tier ?? '');
+    if (!['fast', 'balanced', 'reasoning', 'custom'].includes(tier)) {
+      return errorJson(res, 400, 'BAD_REQUEST', 'tier must be fast | balanced | reasoning | custom');
+    }
+    if (tier === 'custom' && (!b?.customModel || typeof b.customModel !== 'string')) {
+      return errorJson(res, 400, 'BAD_REQUEST', 'customModel is required for the custom tier');
+    }
+    const agent = db.get<{ key: string; model_tier: string }>('SELECT key, model_tier FROM agents WHERE key = ?', params.key);
+    if (!agent) return errorJson(res, 404, 'NOT_FOUND', 'unknown agent');
+    db.run('UPDATE agents SET model_tier = ?, model_custom = ?, updated_at = ? WHERE key = ?',
+      tier, tier === 'custom' ? b!.customModel! : null, Date.now(), params.key);
+    audit(db, cfg.orgId, b?.actor ?? 'owner', 'agent.model_tier', 'agent', params.key,
+      { from: agent.model_tier, to: tier, customModel: tier === 'custom' ? b?.customModel : null });
+    json(res, 200, { ok: true, tier });
+  });
+
   router.post('/api/plans/:id/confirm', ({ res, params, body }) => {
     const decidedBy = (body as { decidedBy?: string } | undefined)?.decidedBy ?? 'owner';
     try {

@@ -14,6 +14,7 @@ import { loadSystemConfig } from '../../shared/config.ts';
 import { hasFreshWorker } from '../../shared/derive.ts';
 import { extractFirstJsonObject } from '../../shared/extract-json.ts';
 import { SayStreamExtractor, SentenceBuffer } from '../../shared/say-stream.ts';
+import { converseModel } from '../../shared/model-tier.ts';
 import { getActiveCoreBundle } from '../../promptreg/registry.ts';
 import { createObjective } from '../../planning/plan-service.ts';
 import { assertTransitionTask, type TaskStatus } from '../../shared/statuses.ts';
@@ -169,7 +170,7 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
       if (adapter.completeStream) {
         streamed = true;
         result = await adapter.completeStream(
-          { system, messages, purpose: 'converse' },
+          { system, messages, purpose: 'converse', model: converseModel(cfg) },
           {
             signal: abort.signal,
             onDelta: (delta) => {
@@ -186,7 +187,7 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
           for (const segment of sentences.push(tail)) sse(res, 'say', { text: segment });
         }
       } else {
-        result = await adapter.complete({ system, messages, purpose: 'converse' });
+        result = await adapter.complete({ system, messages, purpose: 'converse', model: converseModel(cfg) });
       }
       text = result.text;
       db.run(

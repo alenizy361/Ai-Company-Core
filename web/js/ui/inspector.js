@@ -40,13 +40,28 @@ export function buildInspector({ backend, onError }) {
       const data = await (await fetch(`/api/agents/${key}`)).json();
       const agent = data.agent;
       const name = document.documentElement.lang === 'ar' ? agent.name_ar : agent.name_en;
+      const tierBtn = (tier) => el('button', {
+        class: `sbtn small ${agent.model_tier === tier ? 'primary' : ''}`,
+        onclick: async (e) => {
+          e.currentTarget.disabled = true;
+          const res = await fetch(`/api/agents/${key}/model`, {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tier }),
+          });
+          if (!res.ok) onError?.(String(res.status));
+          void showAgent(key);
+        },
+      }, tier);
       const sections = [
         el('h3', null, `${t('inspector.agent')}: `, prose(name)),
         dl([
           [t('inspector.status'), chipEl(backend.snapshot?.agents?.find((a) => a.key === key)?.status ?? agent.lifecycle)],
           [t('inspector.promptVersion'), agent.active_prompt_version_id ? tech(agent.active_prompt_version_id) : null],
-          [t('inspector.modelTier'), agent.model_tier ?? null],
         ]),
+        el('section', null,
+          el('h3', null, t('inspector.modelTier')),
+          el('div', { class: 'actions' }, ['fast', 'balanced', 'reasoning'].map(tierBtn)),
+          agent.model_tier === 'custom' && agent.model_custom ? tech(agent.model_custom) : null,
+        ),
       ];
       const currentTaskId = backend.snapshot?.agents?.find((a) => a.key === key)?.taskId;
       if (currentTaskId) {

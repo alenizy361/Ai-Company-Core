@@ -1,17 +1,173 @@
 {
   "agents": [
-    { "key": "ceo",        "short": "CEO", "nameEn": "CEO",              "nameAr": "الرئيس التنفيذي",  "color": "#b18cff", "reportsTo": null,  "board": { "x": 50, "y": 7.5 } },
-    { "key": "frontend",   "short": "FE",  "nameEn": "Frontend",         "nameAr": "مهندس الواجهات",   "color": "#38e1ff", "reportsTo": "ceo", "board": { "x": 24, "y": 14 } },
-    { "key": "qa",         "short": "QA",  "nameEn": "QA",               "nameAr": "مراقب الجودة",     "color": "#34d399", "reportsTo": "ceo", "board": { "x": 75, "y": 15.5 } },
-    { "key": "backend",    "short": "BE",  "nameEn": "Backend",          "nameAr": "مهندس الأنظمة",    "color": "#38e1ff", "reportsTo": "ceo", "board": { "x": 15, "y": 33 } },
-    { "key": "security",   "short": "SEC", "nameEn": "Security",         "nameAr": "مسؤول الأمن",      "color": "#fb7185", "reportsTo": "ceo", "board": { "x": 85, "y": 37.5 } },
-    { "key": "database",   "short": "DB",  "nameEn": "Database",         "nameAr": "مهندس البيانات",   "color": "#38e1ff", "reportsTo": "ceo", "board": { "x": 14, "y": 55 } },
-    { "key": "analytics",  "short": "AN",  "nameEn": "Analytics",        "nameAr": "محلل البيانات",    "color": "#34d399", "reportsTo": "ceo", "board": { "x": 85, "y": 58 } },
-    { "key": "ux",         "short": "UX",  "nameEn": "UX",               "nameAr": "مصمم التجربة",     "color": "#60a5fa", "reportsTo": "ceo", "board": { "x": 17, "y": 74 } },
-    { "key": "marketing",  "short": "MKT", "nameEn": "Marketing",        "nameAr": "مدير التسويق",     "color": "#34d399", "reportsTo": "ceo", "board": { "x": 83, "y": 76 } },
-    { "key": "operations", "short": "OPS", "nameEn": "Operations",       "nameAr": "مدير العمليات",    "color": "#fbbf24", "reportsTo": "ceo", "board": { "x": 14, "y": 91 } },
-    { "key": "pm",         "short": "PM",  "nameEn": "PM",               "nameAr": "مدير المشاريع",    "color": "#60a5fa", "reportsTo": "ceo", "board": { "x": 34, "y": 91 } },
-    { "key": "finance",    "short": "FIN", "nameEn": "Finance",          "nameAr": "المدير المالي",    "color": "#fbbf24", "reportsTo": "ceo", "board": { "x": 66, "y": 91 } },
-    { "key": "support",    "short": "CS",  "nameEn": "Customer Support", "nameAr": "دعم العملاء",      "color": "#b18cff", "reportsTo": "ceo", "board": { "x": 86, "y": 91 } }
+    {
+      "key": "ceo",
+      "short": "CEO",
+      "nameEn": "CEO",
+      "nameAr": "الرئيس التنفيذي",
+      "color": "#b18cff",
+      "reportsTo": null,
+      "board": {
+        "x": 50,
+        "y": 7.5
+      },
+      "tier": "reasoning"
+    },
+    {
+      "key": "frontend",
+      "short": "FE",
+      "nameEn": "Frontend",
+      "nameAr": "مهندس الواجهات",
+      "color": "#38e1ff",
+      "reportsTo": "ceo",
+      "board": {
+        "x": 24,
+        "y": 14
+      },
+      "tier": "balanced"
+    },
+    {
+      "key": "qa",
+      "short": "QA",
+      "nameEn": "QA",
+      "nameAr": "مراقب الجودة",
+      "color": "#34d399",
+      "reportsTo": "ceo",
+      "board": {
+        "x": 75,
+        "y": 15.5
+      },
+      "tier": "balanced"
+    },
+    {
+      "key": "backend",
+      "short": "BE",
+      "nameEn": "Backend",
+      "nameAr": "مهندس الأنظمة",
+      "color": "#38e1ff",
+      "reportsTo": "ceo",
+      "board": {
+        "x": 15,
+        "y": 33
+      },
+      "tier": "reasoning"
+    },
+    {
+      "key": "security",
+      "short": "SEC",
+      "nameEn": "Security",
+      "nameAr": "مسؤول الأمن",
+      "color": "#fb7185",
+      "reportsTo": "ceo",
+      "board": {
+        "x": 85,
+        "y": 37.5
+      },
+      "tier": "reasoning"
+    },
+    {
+      "key": "database",
+      "short": "DB",
+      "nameEn": "Database",
+      "nameAr": "مهندس البيانات",
+      "color": "#38e1ff",
+      "reportsTo": "ceo",
+      "board": {
+        "x": 14,
+        "y": 55
+      },
+      "tier": "balanced"
+    },
+    {
+      "key": "analytics",
+      "short": "AN",
+      "nameEn": "Analytics",
+      "nameAr": "محلل البيانات",
+      "color": "#34d399",
+      "reportsTo": "ceo",
+      "board": {
+        "x": 85,
+        "y": 58
+      },
+      "tier": "fast"
+    },
+    {
+      "key": "ux",
+      "short": "UX",
+      "nameEn": "UX",
+      "nameAr": "مصمم التجربة",
+      "color": "#60a5fa",
+      "reportsTo": "ceo",
+      "board": {
+        "x": 17,
+        "y": 74
+      },
+      "tier": "balanced"
+    },
+    {
+      "key": "marketing",
+      "short": "MKT",
+      "nameEn": "Marketing",
+      "nameAr": "مدير التسويق",
+      "color": "#34d399",
+      "reportsTo": "ceo",
+      "board": {
+        "x": 83,
+        "y": 76
+      },
+      "tier": "fast"
+    },
+    {
+      "key": "operations",
+      "short": "OPS",
+      "nameEn": "Operations",
+      "nameAr": "مدير العمليات",
+      "color": "#fbbf24",
+      "reportsTo": "ceo",
+      "board": {
+        "x": 14,
+        "y": 91
+      },
+      "tier": "balanced"
+    },
+    {
+      "key": "pm",
+      "short": "PM",
+      "nameEn": "PM",
+      "nameAr": "مدير المشاريع",
+      "color": "#60a5fa",
+      "reportsTo": "ceo",
+      "board": {
+        "x": 34,
+        "y": 91
+      },
+      "tier": "balanced"
+    },
+    {
+      "key": "finance",
+      "short": "FIN",
+      "nameEn": "Finance",
+      "nameAr": "المدير المالي",
+      "color": "#fbbf24",
+      "reportsTo": "ceo",
+      "board": {
+        "x": 66,
+        "y": 91
+      },
+      "tier": "balanced"
+    },
+    {
+      "key": "support",
+      "short": "CS",
+      "nameEn": "Customer Support",
+      "nameAr": "دعم العملاء",
+      "color": "#b18cff",
+      "reportsTo": "ceo",
+      "board": {
+        "x": 86,
+        "y": 91
+      },
+      "tier": "fast"
+    }
   ]
 }

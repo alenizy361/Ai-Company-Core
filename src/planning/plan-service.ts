@@ -10,6 +10,7 @@ import { getActiveCoreBundle, getActiveAgentPrompt } from '../promptreg/registry
 import { parsePlanResponse, type ParsedPlan, type PlanError } from './plan-parser.ts';
 import type { ModelAdapter } from '../adapters/types.ts';
 import { AdapterError } from '../adapters/types.ts';
+import { resolveAgentModel } from '../shared/model-tier.ts';
 
 export interface ObjectiveRow {
   id: string;
@@ -136,6 +137,7 @@ export async function runPlanningForObjective(
         system: prompt.system,
         messages: [{ role: 'user', content: prompt.user }],
         purpose: 'planning',
+        model: resolveAgentModel(db, cfg, 'ceo'), // planning is the CEO's job
       });
       text = res.text;
       usage = res.usage;

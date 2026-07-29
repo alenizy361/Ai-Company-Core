@@ -12,6 +12,8 @@ export interface CompletionRequest {
   messages: ChatMessage[];
   /** Rough purpose tag for logging/usage accounting. */
   purpose: 'execution' | 'planning' | 'converse' | 'eval';
+  /** Concrete model id resolved from the agent's tier; adapter default when absent. */
+  model?: string;
 }
 
 export interface CompletionResult {

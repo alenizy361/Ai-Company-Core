@@ -26,10 +26,13 @@ export function seedOrgAndAgents(db: Db): void {
           agent.short, agent.nameEn, agent.nameAr, agent.color, agent.reportsTo, now, agent.key,
         );
       } else {
+        // model_tier is set only at INSERT: the config default is a starting
+        // point and the owner's later override must never be clobbered.
         db.run(
-          `INSERT INTO agents (id, org_id, key, short, name_en, name_ar, color, reports_to, lifecycle, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'not_configured', ?, ?)`,
-          ulid('agt'), cfg.orgId, agent.key, agent.short, agent.nameEn, agent.nameAr, agent.color, agent.reportsTo, now, now,
+          `INSERT INTO agents (id, org_id, key, short, name_en, name_ar, color, reports_to, lifecycle, model_tier, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'not_configured', ?, ?, ?)`,
+          ulid('agt'), cfg.orgId, agent.key, agent.short, agent.nameEn, agent.nameAr, agent.color, agent.reportsTo,
+          agent.tier ?? 'balanced', now, now,
         );
       }
     }

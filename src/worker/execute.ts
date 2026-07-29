@@ -8,6 +8,7 @@ import type { Db } from '../shared/db.ts';
 import { ulid } from '../shared/ids.ts';
 import { emitEvent } from '../shared/events.ts';
 import { notify } from '../shared/notify.ts';
+import { resolveAgentModel } from '../shared/model-tier.ts';
 import { loadPermissions, type Paths, type SystemConfig } from '../shared/config.ts';
 import { assertTransitionTask, type TaskStatus, type ExecutionStatus } from '../shared/statuses.ts';
 import { extractFirstJsonObject } from '../shared/extract-json.ts';
@@ -256,6 +257,7 @@ export async function runExecution(
     }));
 
   const orgName = db.get<{ name: string }>('SELECT name FROM orgs WHERE id = ?', cfg.orgId)?.name ?? 'SIRA';
+  const agentModel = resolveAgentModel(db, cfg, task.agent_key);
   let assembled;
   try {
     assembled = assemblePrompt(db, {
@@ -329,7 +331,7 @@ export async function runExecution(
     const callStart = Date.now();
     let text: string;
     try {
-      const res = await adapter.complete({ system: assembled.system, messages, purpose: 'execution' });
+      const res = await adapter.complete({ system: assembled.system, messages, purpose: 'execution', model: agentModel });
       text = res.text;
       totalIn += res.usage.input;
       totalOut += res.usage.output;

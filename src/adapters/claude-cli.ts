@@ -93,7 +93,8 @@ export class ClaudeCliAdapter implements ModelAdapter {
 
   complete(req: CompletionRequest): Promise<CompletionResult> {
     const args = ['-p', '--output-format', 'json', '--tools', '', '--system-prompt', req.system];
-    if (process.env.SIRA_CLI_MODEL) args.push('--model', process.env.SIRA_CLI_MODEL);
+    const model = req.model ?? process.env.SIRA_CLI_MODEL;
+    if (model) args.push('--model', model);
 
     return new Promise<CompletionResult>((resolve, reject) => {
       const child = spawn(resolveClaudeBin(), args, {
@@ -171,7 +172,8 @@ export class ClaudeCliAdapter implements ModelAdapter {
       '-p', '--output-format', 'stream-json', '--include-partial-messages', '--verbose',
       '--tools', '', '--system-prompt', req.system,
     ];
-    if (process.env.SIRA_CLI_MODEL) args.push('--model', process.env.SIRA_CLI_MODEL);
+    const model = req.model ?? process.env.SIRA_CLI_MODEL;
+    if (model) args.push('--model', model);
 
     return new Promise<CompletionResult>((resolve, reject) => {
       const child = spawn(resolveClaudeBin(), args, {

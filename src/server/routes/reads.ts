@@ -209,6 +209,11 @@ export function registerReadRoutes(router: Router, db: Db): void {
                 SUM(output_tokens) AS output_tokens, SUM(turns_used) AS turns
          FROM executions GROUP BY agent_key ORDER BY input_tokens DESC`,
       ),
+      byModel: db.all(
+        `SELECT model, purpose, COUNT(*) AS requests, SUM(input_tokens) AS input_tokens,
+                SUM(output_tokens) AS output_tokens
+         FROM model_requests WHERE model != '' GROUP BY model, purpose ORDER BY output_tokens DESC`,
+      ),
     });
   });
 

@@ -14,5 +14,11 @@
   "maxReplans": 2,
   "maxPlanSteps": 30,
   "toolTimeoutMs": 120000,
-  "toolResultInlineLimit": 8000
+  "toolResultInlineLimit": 8000,
+  "modelTiers": {
+    "fast": "claude-haiku-4-5-20251001",
+    "balanced": "claude-sonnet-5",
+    "reasoning": "claude-opus-5"
+  },
+  "converseTier": "balanced"
 }

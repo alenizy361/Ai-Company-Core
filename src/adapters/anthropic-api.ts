@@ -15,14 +15,23 @@ export class AnthropicApiAdapter implements ModelAdapter {
     return this.client;
   }
 
+  /**
+   * Stable system prompt is marked for prompt caching (assemble.ts keeps the
+   * immutable core first and all dynamic task context in trailing sections,
+   * so the cache prefix stays warm across turns).
+   */
+  private requestParams(req: CompletionRequest): Anthropic.MessageCreateParamsNonStreaming {
+    return {
+      model: req.model ?? DEFAULT_MODEL,
+      max_tokens: 16000,
+      system: [{ type: 'text', text: req.system, cache_control: { type: 'ephemeral' } }],
+      messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
+    };
+  }
+
   async complete(req: CompletionRequest): Promise<CompletionResult> {
     try {
-      const response = await this.getClient().messages.create({
-        model: DEFAULT_MODEL,
-        max_tokens: 16000,
-        system: req.system,
-        messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
-      });
+      const response = await this.getClient().messages.create(this.requestParams(req));
 
       if (response.stop_reason === 'refusal') {
         throw new AdapterError('anthropic-api', 'model declined the request (stop_reason=refusal)', false);
@@ -46,15 +55,7 @@ export class AnthropicApiAdapter implements ModelAdapter {
   /** True token streaming via the SDK's streaming API; abortable. */
   async completeStream(req: CompletionRequest, stream: StreamHandle): Promise<CompletionResult> {
     try {
-      const s = this.getClient().messages.stream(
-        {
-          model: DEFAULT_MODEL,
-          max_tokens: 16000,
-          system: req.system,
-          messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
-        },
-        { signal: stream.signal },
-      );
+      const s = this.getClient().messages.stream(this.requestParams(req), { signal: stream.signal });
       s.on('text', (delta) => stream.onDelta(delta));
       const response = await s.finalMessage();
       if (response.stop_reason === 'refusal') {
