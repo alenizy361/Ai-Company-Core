@@ -202,6 +202,7 @@ export class VoiceController {
           text,
           modality,
           lang: isArabic(text) ? 'ar' : 'en',
+          replyLang: prefs.get('replyLang') || 'auto',
           conversationId: this.conversationId,
           voiceSessionId: this.store.session?.id,
           voiceToken: this.store.session?.token,

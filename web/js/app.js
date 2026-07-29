@@ -173,6 +173,12 @@ const palette = buildPalette({
     if (id === 'chat') openDrawer($('chatOv'), $('chatDrawer'));
     else if (id === 'activity') { void activity.render(); openDrawer($('actOv'), $('actDrawer')); }
     else if (id === 'language') locale.toggle();
+    else if (id === 'replyLang') {
+      const order = ['auto', 'en', 'ar'];
+      const next = order[(order.indexOf(prefs.get('replyLang') || 'auto') + 1) % order.length];
+      prefs.set('replyLang', next);
+      conversation.addSystem(`🗣 ${t('palette.nav.replyLang', { mode: t(`replyLang.${next}`) })}`);
+    }
     else if (id === 'motion') {
       prefs.set('motion', prefs.get('motion') === 'reduced' ? 'full' : 'reduced');
       applyMotionAttr();

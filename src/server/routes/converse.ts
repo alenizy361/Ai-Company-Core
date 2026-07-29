@@ -84,7 +84,7 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
   router.post('/api/converse', async ({ res, body }) => {
     const b = body as {
       conversationId?: string; text?: string; modality?: 'voice' | 'text'; lang?: string;
-      voiceSessionId?: string; voiceToken?: string;
+      replyLang?: string; voiceSessionId?: string; voiceToken?: string;
     } | undefined;
     if (!b?.text || typeof b.text !== 'string' || !b.text.trim()) {
       return errorJson(res, 400, 'BAD_REQUEST', 'text is required');
@@ -135,9 +135,14 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
       if (m.role === 'user') messages.push({ role: 'user', content: m.content });
       else if (m.role === 'assistant') messages.push({ role: 'assistant', content: m.content });
     }
+    // Owner setting: force the reply language instead of mirroring the input.
+    const replyLang = b.replyLang === 'en' || b.replyLang === 'ar' ? b.replyLang : null;
+    const replyLangLine = replyLang
+      ? `\n# OWNER SETTING: always write "say" in ${replyLang === 'en' ? 'English' : 'Arabic'}, regardless of the language the owner used.\n`
+      : '';
     messages.push({
       role: 'user',
-      content: `# COMPANY STATE (live, authoritative)\n${companyStateSummary(db, cfg)}\n\n# OWNER SAYS (${modality})\n${b.text}\n\nRespond with exactly one converse-contract JSON object.`,
+      content: `# COMPANY STATE (live, authoritative)\n${companyStateSummary(db, cfg)}\n\n# OWNER SAYS (${modality})\n${b.text}\n${replyLangLine}\nRespond with exactly one converse-contract JSON object.`,
     });
 
     if (voiceSession) recordTransition(db, voiceSession, 'thinking', 'server');

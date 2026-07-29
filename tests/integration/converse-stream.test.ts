@@ -10,6 +10,7 @@ import { makeEnv } from '../helpers/fixtures.ts';
 import { Router, errorJson } from '../../src/server/router.ts';
 import { registerConverseRoutes } from '../../src/server/routes/converse.ts';
 import { MockAdapter } from '../../src/adapters/mock.ts';
+import type { CompletionRequest, CompletionResult } from '../../src/adapters/types.ts';
 
 interface SseEvent { event: string; data: Record<string, unknown> }
 
@@ -101,4 +102,32 @@ test('client abort mid-generation: no assistant row, aborted model request, user
     `SELECT parse_status, error FROM model_requests WHERE purpose = 'converse' ORDER BY created_at DESC LIMIT 1`);
   assert.equal(mr?.parse_status, 'adapter_error');
   assert.equal(mr?.error, 'aborted by client');
+});
+
+test('replyLang setting injects the forced-language instruction', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const seen: string[] = [];
+  class CaptureAdapter extends MockAdapter {
+    override complete(req: CompletionRequest): Promise<CompletionResult> {
+      seen.push(req.messages[req.messages.length - 1].content);
+      return super.complete(req);
+    }
+  }
+  const router = new Router();
+  registerConverseRoutes(router, env.db, () => new CaptureAdapter());
+  const srv = await startServer(router);
+  t.after(srv.close);
+
+  await (await fetch(`${srv.base}/api/converse`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'كيف حال الشركة الآن؟', replyLang: 'en' }),
+  })).text();
+  assert.match(seen[0], /always write "say" in English/, 'forced-English instruction present');
+
+  await (await fetch(`${srv.base}/api/converse`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'how are things?', replyLang: 'auto' }),
+  })).text();
+  assert.ok(!/OWNER SETTING/.test(seen[1]), 'auto mode mirrors the speaker (no forced instruction)');
 });

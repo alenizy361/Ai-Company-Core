@@ -168,6 +168,10 @@ export default {
   'palette.nav.chat': 'فتح المحادثة',
   'palette.nav.activity': 'فتح النشاط',
   'palette.nav.language': 'تبديل اللغة',
+  'palette.nav.replyLang': 'لغة الرد: {mode}',
+  'replyLang.auto': 'حسب لغتي',
+  'replyLang.en': 'الإنجليزية فقط',
+  'replyLang.ar': 'العربية فقط',
   'palette.nav.motion': 'تبديل تقليل الحركة',
 
   'error.backendUnreachable': 'الخادم غير متاح: {detail}',

@@ -3,6 +3,7 @@
 // result row keeps its natural direction.
 import { el, mount, prose } from '../core/dom.js';
 import { t, locale } from '../i18n/i18n.js';
+import { prefs } from '../core/prefs.js';
 import { openLayer, closeLayer } from '../a11y/focus.js';
 
 const MODES = ['ask', 'find', 'navigate'];
@@ -21,10 +22,12 @@ export function buildPalette({ onAsk, onNavigate, onOpenResult }) {
   ov.addEventListener('click', close);
 
   function navTargets() {
+    const replyLang = prefs.get('replyLang') || 'auto';
     return [
       { id: 'chat', label: t('palette.nav.chat') },
       { id: 'activity', label: t('palette.nav.activity') },
       { id: 'language', label: t('palette.nav.language') },
+      { id: 'replyLang', label: t('palette.nav.replyLang', { mode: t(`replyLang.${replyLang}`) }) },
       { id: 'motion', label: t('palette.nav.motion') },
     ];
   }

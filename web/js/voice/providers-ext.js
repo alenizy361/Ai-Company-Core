@@ -79,6 +79,10 @@ export class FishAudioTTS {
     this.store = store;
     this.queue = [];
     this.playing = false;
+    // busy covers the whole synthesize->play->end cycle: `playing` only
+    // becomes true at audio.onplaying, so gating _next() on it alone lets a
+    // second sentence start fetching mid-flight and OVERLAP the first.
+    this.busy = false;
     this.available = true;
     this.audio = null;
     this.currentText = '';
@@ -98,17 +102,19 @@ export class FishAudioTTS {
 
   enqueue(text) {
     this.queue.push(text);
-    if (!this.playing) this._next();
+    if (!this.busy) this._next();
     return true;
   }
 
   async _next() {
     const text = this.queue.shift();
     if (text === undefined) {
+      this.busy = false;
       this.playing = false;
       if (['speaking', 'generating_speech'].includes(this.store.state)) this.store.transition('ready', 'playback');
       return;
     }
+    this.busy = true;
     this.store.transition('generating_speech', 'tts');
     const session = this.store.session;
     try {
@@ -138,11 +144,13 @@ export class FishAudioTTS {
       };
       audio.onerror = () => {
         this.playing = false;
+        this.busy = false;
         this.store.transition('failed', 'tts');
       };
       await audio.play();
     } catch {
       this.playing = false;
+      this.busy = false;
       this.store.transition('failed', 'tts');
     }
   }
@@ -158,6 +166,7 @@ export class FishAudioTTS {
     }
     const pending = this.queue.splice(0);
     this.playing = false;
+    this.busy = false;
     if (wasPlaying) {
       this.store.transition('interrupted', 'playback');
       const unspoken = [remainder, ...pending].filter(Boolean).join(' ');

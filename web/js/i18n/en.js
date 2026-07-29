@@ -179,6 +179,10 @@ export default {
   'palette.nav.chat': 'Open chat',
   'palette.nav.activity': 'Open activity',
   'palette.nav.language': 'Switch language',
+  'palette.nav.replyLang': 'Reply language: {mode}',
+  'replyLang.auto': 'match my language',
+  'replyLang.en': 'English only',
+  'replyLang.ar': 'Arabic only',
   'palette.nav.motion': 'Toggle reduced motion',
 
   // Errors / degradation.
