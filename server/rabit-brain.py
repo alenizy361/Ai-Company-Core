@@ -33,6 +33,7 @@ import shutil
 import sqlite3
 import threading
 import time
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -928,6 +929,10 @@ def ask_cli(history, message):
 
 # ---------------- neural TTS proxy (optional) ----------------
 _tts_last_error = ""
+# "George" — a premade voice. The old default (Rachel, 21m00Tcm4TlvDq8ikWAM)
+# is a library voice, and ElevenLabs answers 402 paid_plan_required for those
+# on free accounts, so every request produced silence.
+ELEVEN_DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb"
 
 
 def tts_hint():
@@ -967,15 +972,28 @@ def synth_tts(text, lang):
             return r.read()
     if TTS_MODE == "elevenlabs":
         key = os.environ.get("ELEVEN_KEY", "")
-        vid = os.environ.get("ELEVEN_VOICE", "21m00Tcm4TlvDq8ikWAM")
         if not key:
             return None
-        req = urllib.request.Request(
-            "https://api.elevenlabs.io/v1/text-to-speech/%s" % vid,
-            data=json.dumps({"text": text, "model_id": "eleven_multilingual_v2"}).encode(),
-            headers={"xi-api-key": key, "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=25) as r:
-            return r.read()
+        model = os.environ.get("ELEVEN_MODEL", "eleven_multilingual_v2")
+        vid = os.environ.get("ELEVEN_VOICE", "").strip() or ELEVEN_DEFAULT_VOICE
+
+        def _speak(voice_id):
+            req = urllib.request.Request(
+                "https://api.elevenlabs.io/v1/text-to-speech/%s" % voice_id,
+                data=json.dumps({"text": text, "model_id": model}).encode(),
+                headers={"xi-api-key": key, "Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=25) as r:
+                return r.read()
+
+        try:
+            return _speak(vid)
+        except urllib.error.HTTPError as exc:
+            # Free accounts may not use library voices via the API (402). A
+            # stored voice id would fail forever, so fall back to a premade
+            # voice every tier can reach rather than going silent.
+            if exc.code in (401, 402, 403) and vid != ELEVEN_DEFAULT_VOICE:
+                return _speak(ELEVEN_DEFAULT_VOICE)
+            raise
     return None
 
 

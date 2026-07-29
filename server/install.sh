@@ -103,7 +103,8 @@ put RABIT_TTS "${VMODE:-browser}"
                           put AZURE_TTS_REGION "$(askc AZURE_TTS_REGION 'Azure region (e.g. eastus)' '')"; }
 [ "$VMODE" = elevenlabs ] && {
   put ELEVEN_KEY "$(askc ELEVEN_KEY 'ElevenLabs API key' '')"
-  put ELEVEN_VOICE "$(askc ELEVEN_VOICE 'ElevenLabs voice id (blank = default)' '21m00Tcm4TlvDq8ikWAM')"; }
+  # premade voice — free accounts get 402 on library voices such as Rachel
+  put ELEVEN_VOICE "$(askc ELEVEN_VOICE 'ElevenLabs voice id (blank = default)' 'JBFqnCBsd6RMkjVDRZzb')"; }
 
 # telegram (optional)
 TG=$(get TELEGRAM_TOKEN); [ -z "$TG" ] && TG=$(ask TELEGRAM_TOKEN \
