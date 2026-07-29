@@ -1,8 +1,9 @@
 // Workspace file tools. Paths arrive already resolved+policy-checked by
 // dispatch (passed as args.__abs / args.__rel).
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import type { Tool, ToolResult } from '../types.ts';
+import { storeArtifact } from './artifacts.ts';
 
 const MAX_READ = 200_000;
 const SKIP_DIRS = new Set(['node_modules', '.git', 'var']);
@@ -31,7 +32,7 @@ export const readFileTool: Tool = {
 
 export const writeFileTool: Tool = {
   name: 'write_file',
-  description: 'Create or overwrite a file in the workspace (within your writable paths). Args: {path, content}.',
+  description: 'Create or overwrite a file in the workspace (within your writable paths). Args: {path, content}. A file matching one of the task\'s expected artifacts is registered as that artifact automatically.',
   effects: 'write',
   schema: {
     type: 'object',
@@ -39,12 +40,37 @@ export const writeFileTool: Tool = {
     required: ['path', 'content'],
     additionalProperties: true,
   },
-  run(args): Promise<ToolResult> {
+  run(args, ctx): Promise<ToolResult> {
     const abs = String(args.__abs);
     mkdirSync(dirname(abs), { recursive: true });
     const content = String(args.content);
     writeFileSync(abs, content, 'utf8');
-    return Promise.resolve({ ok: true, data: { path: args.path, bytes_written: Buffer.byteLength(content) } });
+    // The task packet says expected artifacts may be created "via
+    // write_artifact or write_file" — honor that: a workspace file whose
+    // path/basename matches an expected artifact IS the deliverable, so
+    // register it (verification resolves artifacts through the DB).
+    let registeredArtifactId: string | null = null;
+    try {
+      const task = ctx.taskId
+        ? ctx.db.get<{ expected_artifacts: string }>('SELECT expected_artifacts FROM tasks WHERE id = ?', ctx.taskId)
+        : undefined;
+      const expected = task ? (JSON.parse(task.expected_artifacts || '[]') as string[]) : [];
+      const rel = String(args.__rel ?? args.path);
+      const matchName = expected.includes(rel) ? rel : expected.includes(basename(rel)) ? basename(rel) : null;
+      if (matchName) {
+        registeredArtifactId = storeArtifact(
+          { db: ctx.db, artifactsDir: ctx.artifactsDir, orgId: ctx.orgId },
+          { taskId: ctx.taskId, executionId: ctx.executionId, agentKey: ctx.agentKey, name: matchName, kind: 'file', content },
+        ).id;
+      }
+    } catch { /* registration is additive; the write itself already succeeded */ }
+    return Promise.resolve({
+      ok: true,
+      data: {
+        path: args.path, bytes_written: Buffer.byteLength(content),
+        ...(registeredArtifactId ? { registered_as_artifact: registeredArtifactId } : {}),
+      },
+    });
   },
 };
 

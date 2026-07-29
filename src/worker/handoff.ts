@@ -64,6 +64,39 @@ export function createHandoffsAndUnblock(
   });
 }
 
+/**
+ * A task that reaches 'failed' or 'cancelled' permanently strands every task
+ * that depends on it: the claim filter requires ALL dependencies completed,
+ * so dependents would sit in 'waiting_for_dependency' forever and the
+ * objective would never finish. Cascade-cancel them (transitively) with an
+ * honest blocker, then let maybeCompleteObjective finalize the objective.
+ */
+export function cascadeDependencyFailure(db: Db, cfg: SystemConfig, fromTaskId: string): void {
+  const queue = [fromTaskId];
+  while (queue.length > 0) {
+    const id = queue.shift() as string;
+    const dependents = db.all<{ id: string; status: string; agent_key: string; step_id: string }>(
+      `SELECT t.id, t.status, t.agent_key, t.step_id FROM task_dependencies d
+       JOIN tasks t ON t.id = d.task_id WHERE d.depends_on_task_id = ?`,
+      id,
+    );
+    const now = Date.now();
+    for (const dependent of dependents) {
+      if (!['waiting_for_dependency', 'queued', 'blocked'].includes(dependent.status)) continue;
+      db.run(
+        `UPDATE tasks SET status = 'cancelled', claimed_by = NULL, lease_expires_at = NULL, blocker = ?, updated_at = ?
+         WHERE id = ? AND status = ?`,
+        `a task this depends on failed or was cancelled (${id})`, now, dependent.id, dependent.status,
+      );
+      emitEvent(db, {
+        type: 'task.status', orgId: cfg.orgId, taskId: dependent.id, agentKey: dependent.agent_key,
+        payload: { from: dependent.status, to: 'cancelled', source: 'dependency_failed', dependency: id },
+      });
+      queue.push(dependent.id);
+    }
+  }
+}
+
 /** If every task of the objective is terminal, finish the objective (+ notification). */
 export function maybeCompleteObjective(db: Db, cfg: SystemConfig, objectiveId: string): void {
   const counts = db.all<{ status: string; n: number }>(
@@ -76,23 +109,35 @@ export function maybeCompleteObjective(db: Db, cfg: SystemConfig, objectiveId: s
 
   const failed = counts.find((c) => c.status === 'failed')?.n ?? 0;
   const cancelled = counts.find((c) => c.status === 'cancelled')?.n ?? 0;
-  const finalStatus = failed > 0 ? 'failed' : 'completed';
+  const completed = total - failed - cancelled;
+  // Honest finalization: cancelled work never counts toward "completed".
+  // Any failure -> failed; everything cancelled -> cancelled; a mix of
+  // completed + cancelled stays 'completed' but the notification says
+  // exactly how much of the plan actually ran.
+  const finalStatus = failed > 0 ? 'failed' : completed === 0 ? 'cancelled' : 'completed';
   const now = Date.now();
 
   const objective = db.get<{ title: string; status: string }>('SELECT title, status FROM objectives WHERE id = ?', objectiveId);
   if (!objective || ['completed', 'failed', 'cancelled'].includes(objective.status)) return;
 
+  const titles: Record<string, string> = {
+    completed: cancelled > 0
+      ? `Objective completed (partial — ${cancelled} of ${total} tasks cancelled): ${objective.title}`
+      : `Objective completed: ${objective.title}`,
+    failed: `Objective failed: ${objective.title}`,
+    cancelled: `Objective cancelled: ${objective.title}`,
+  };
   db.transaction(() => {
     db.run('UPDATE objectives SET status = ?, updated_at = ? WHERE id = ?', finalStatus, now, objectiveId);
     emitEvent(db, {
       type: 'objective.finished', orgId: cfg.orgId,
-      payload: { objectiveId, status: finalStatus, completed: total - failed - cancelled, failed, cancelled },
+      payload: { objectiveId, status: finalStatus, completed, failed, cancelled },
     });
     notify(db, cfg.orgId, {
-      kind: finalStatus === 'completed' ? 'objective_completed' : 'objective_failed',
-      priority: finalStatus === 'completed' ? 'normal' : 'high',
-      title: finalStatus === 'completed' ? `Objective completed: ${objective.title}` : `Objective failed: ${objective.title}`,
-      body: `${total - failed - cancelled}/${total} tasks completed${failed ? `, ${failed} failed` : ''}${cancelled ? `, ${cancelled} cancelled` : ''}`,
+      kind: finalStatus === 'completed' ? 'objective_completed' : finalStatus === 'cancelled' ? 'objective_cancelled' : 'objective_failed',
+      priority: finalStatus === 'failed' ? 'high' : 'normal',
+      title: titles[finalStatus],
+      body: `${completed}/${total} tasks completed${failed ? `, ${failed} failed` : ''}${cancelled ? `, ${cancelled} cancelled` : ''}`,
       payload: { objectiveId },
     });
   });

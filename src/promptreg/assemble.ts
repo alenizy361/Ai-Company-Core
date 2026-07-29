@@ -117,7 +117,16 @@ export function assemblePrompt(db: Db, input: AssembleInput): AssembledPrompt {
   );
 
   if (input.task.verification.length) {
-    sections.push(`## Verification checks the backend will run\n${JSON.stringify(input.task.verification, null, 1)}`);
+    // Deliberately redacted: the agent learns WHAT will be checked (type +
+    // target) but never the exact needles/schemas — disclosing them verbatim
+    // turns the check suite into an answer key a shortcutting model can echo
+    // into a placeholder artifact.
+    const summary = (input.task.verification as { type?: string; artifact?: string; cmd?: string }[])
+      .map((c) => `- ${c.type ?? 'check'}${c.artifact ? ` on ${c.artifact}` : ''}${c.cmd ? `: ${c.cmd}` : ''}`)
+      .join('\n');
+    sections.push(
+      `## Verification (run independently by the backend after you claim completion — exact criteria are not disclosed)\n${summary}\nDo the work the specification asks for; superficial output will fail these checks.`,
+    );
   }
 
   if (input.inputArtifacts.length) {

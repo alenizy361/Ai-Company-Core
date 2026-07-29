@@ -8,6 +8,7 @@ import { mkdirSync } from 'node:fs';
 import type { Db } from '../shared/db.ts';
 import { ulid } from '../shared/ids.ts';
 import { emitEvent } from '../shared/events.ts';
+import { notify } from '../shared/notify.ts';
 import { validate } from '../shared/jsonschema.ts';
 import type { RolePolicy } from '../shared/config.ts';
 import { getTool } from './registry.ts';
@@ -128,6 +129,14 @@ export async function dispatchTool(
     emitEvent(db, {
       type: 'approval.requested', orgId: ctx.orgId, executionId: ctx.executionId, taskId: ctx.taskId, agentKey: ctx.agentKey,
       payload: { approvalId, toolCallId, tool: toolName, subject: approvalSubject(toolName, args) },
+    });
+    // Execution pauses until the owner decides — an away owner must get a
+    // real notification, not just an event a closed dashboard never saw.
+    notify(db, ctx.orgId, {
+      kind: 'approval_required', priority: 'high',
+      title: `Approval required: ${toolName}`,
+      body: `${ctx.agentKey}: ${approvalSubject(toolName, args)}`.slice(0, 500),
+      payload: { approvalId, toolCallId, taskId: ctx.taskId },
     });
     return {
       decision: 'approval_required',

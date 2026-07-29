@@ -16,26 +16,41 @@ import { extractFirstJsonObject } from '../../shared/extract-json.ts';
 import { SayStreamExtractor, SentenceBuffer } from '../../shared/say-stream.ts';
 import { converseModel } from '../../shared/model-tier.ts';
 import { getActiveCoreBundle } from '../../promptreg/registry.ts';
-import { createObjective } from '../../planning/plan-service.ts';
+import { createObjective, confirmPlan, rejectPlan } from '../../planning/plan-service.ts';
 import { assertTransitionTask, type TaskStatus } from '../../shared/statuses.ts';
 import { AdapterError, type ModelAdapter, type ChatMessage } from '../../adapters/types.ts';
 import { recordTransition, verifyVoiceToken } from '../../voice/session.ts';
+import { cascadeDependencyFailure, maybeCompleteObjective } from '../../worker/handoff.ts';
 
-const CONVERSE_CONTRACT = `
+/**
+ * The reply-language rule lives IN the system contract: when the owner locks
+ * a reply language, the mirror-the-speaker rule must be REPLACED, not
+ * contradicted by a note buried in the user turn (the model resolves that
+ * contradiction in favor of the system rule and keeps mirroring).
+ */
+function converseContract(replyLang: 'en' | 'ar' | null): string {
+  const sayLanguageRule = replyLang
+    ? `ALWAYS in ${replyLang === 'en' ? 'English' : 'Arabic'} — the owner locked the reply language in settings; do NOT mirror the owner's input language`
+    : `in the owner's language (Arabic in -> Arabic out; mirror code-switching)`;
+  return `
 # CONVERSE MODE — you are SIRA, the owner's company operating system, speaking with the owner.
 
 Respond with EXACTLY ONE JSON object:
 {"route":"reply","say":"<spoken answer>"}
 {"route":"create_objective","title":"<short objective title>","description":"<what the owner wants, complete>","say":"<confirm what you'll do + that a plan will follow for approval>"}
-{"route":"approve","approval_id":"<id from the pending list>","decision":"approved"|"rejected","say":"<confirmation>"}
+{"route":"confirm_plan","plan_id":"<id from the plans-awaiting list>","say":"<confirmation that the team is starting>"}
+{"route":"reject_plan","plan_id":"<id from the plans-awaiting list>","reason":"<the owner's reason>","say":"<confirmation>"}
+{"route":"approve","approval_id":"<id from the pending approvals list>","decision":"approved"|"rejected","say":"<confirmation>"}
 {"route":"cancel_task","task_id":"<id>","say":"<confirmation>"}
 {"route":"clarify","say":"<one specific question>"}
 
 Rules:
-- "say" is SPOKEN aloud: short, natural, complete sentences in the owner's language (Arabic in -> Arabic out; mirror code-switching). No JSON, ids, URLs, paths, or markdown inside "say" — say counts and names in words.
+- "say" is SPOKEN aloud: short, natural, complete sentences ${sayLanguageRule}. No JSON, ids, URLs, paths, or markdown inside "say" — say counts and names in words.
 - Ground every claim in the COMPANY STATE section below — it is the live truth. Never invent tasks, progress, or results. If state shows nothing running, say so.
-- A request to do work = create_objective (planning + execution happen in the background and need owner confirmation before agents run). A question = reply. An explicit approval/rejection of a listed pending approval = approve.
+- A request to do work = create_objective (planning + execution happen in the background and need owner confirmation before agents run). A question = reply.
+- When the owner approves/starts a plan from "Plans awaiting owner confirmation" = confirm_plan (this is what actually starts execution). "approve" is ONLY for tool approvals in the "Pending approvals" list.
 - Never claim an action was taken beyond what your route actually does.`;
+}
 
 function sentenceSegments(text: string): string[] {
   const parts = text.match(/[^.!?؟…\n]+[.!?؟…]?\s*/g) ?? [text];
@@ -118,12 +133,16 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
     });
     sse(res, 'meta', { conversationId, userMessageId });
 
+    // Owner setting: force the reply language instead of mirroring the input.
+    // Applied in the SYSTEM contract so it replaces (not fights) the mirror rule.
+    const replyLang = b.replyLang === 'en' || b.replyLang === 'ar' ? b.replyLang : null;
+
     // System prompt: core truth/communication rules + converse contract.
     let coreText = '';
     try {
       coreText = getActiveCoreBundle(db).text;
     } catch { /* pre-seed: converse still works with the bare contract */ }
-    const system = `${coreText}\n\n${CONVERSE_CONTRACT}`;
+    const system = `${coreText}\n\n${converseContract(replyLang)}`;
 
     const history = db.all<{ role: string; content: string; route: string | null }>(
       `SELECT role, content, route FROM messages WHERE conversation_id = ? AND id != ? ORDER BY created_at DESC LIMIT 12`,
@@ -135,14 +154,9 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
       if (m.role === 'user') messages.push({ role: 'user', content: m.content });
       else if (m.role === 'assistant') messages.push({ role: 'assistant', content: m.content });
     }
-    // Owner setting: force the reply language instead of mirroring the input.
-    const replyLang = b.replyLang === 'en' || b.replyLang === 'ar' ? b.replyLang : null;
-    const replyLangLine = replyLang
-      ? `\n# OWNER SETTING: always write "say" in ${replyLang === 'en' ? 'English' : 'Arabic'}, regardless of the language the owner used.\n`
-      : '';
     messages.push({
       role: 'user',
-      content: `# COMPANY STATE (live, authoritative)\n${companyStateSummary(db, cfg)}\n\n# OWNER SAYS (${modality})\n${b.text}\n${replyLangLine}\nRespond with exactly one converse-contract JSON object.`,
+      content: `# COMPANY STATE (live, authoritative)\n${companyStateSummary(db, cfg)}\n\n# OWNER SAYS (${modality})\n${b.text}\n\nRespond with exactly one converse-contract JSON object.`,
     });
 
     if (voiceSession) recordTransition(db, voiceSession, 'thinking', 'server');
@@ -211,7 +225,10 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
       );
       if (voiceSession) recordTransition(db, voiceSession, aborted ? 'ready' : 'failed', 'server');
       if (!aborted) {
-        sse(res, 'error', { message: 'model unavailable', reference: requestId, detail: detail.slice(0, 200) });
+        // A safety-classifier decline is not an outage — label it honestly so
+        // the client can phrase it correctly.
+        const code = err instanceof AdapterError && err.kind === 'refusal' ? 'refusal' : 'unavailable';
+        sse(res, 'error', { code, message: code === 'refusal' ? 'model declined' : 'model unavailable', reference: requestId, detail: detail.slice(0, 200) });
         sse(res, 'done', {});
       }
       res.end();
@@ -224,6 +241,7 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
     let route = 'reply';
     let say = text.trim();
     let routePayload: Record<string, unknown> = {};
+    let contractOk = false;
     const extracted = extractFirstJsonObject(text);
     if (extracted.ok) {
       const obj = extracted.value as Record<string, unknown>;
@@ -231,10 +249,24 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
         route = obj.route;
         say = obj.say;
         routePayload = obj;
+        contractOk = true;
       }
     }
+    if (!contractOk) {
+      // Record the contract failure honestly (the row was inserted as 'ok'
+      // before parsing), and prefer the decoded say value the extractor
+      // already streamed over echoing a raw JSON blob into the transcript.
+      db.run(`UPDATE model_requests SET parse_status = 'parse_error', error = ? WHERE id = ?`,
+        `converse contract violated: ${extracted.ok ? 'object lacks route/say strings' : extracted.error}`.slice(0, 500), requestId);
+      if (streamed && !extractor.rawMode && extractor.emitted.trim()) say = extractor.emitted.trim();
+    }
 
-    // Execute the route against real records.
+    // Execute the route against real records. sayReplaced is set ONLY when a
+    // route outcome overwrites the model's say post-hoc — it is the sole
+    // trigger for re-speaking (a text mismatch between streamed and parsed
+    // say must never re-emit, or the owner hears the reply twice).
+    let sayReplaced = false;
+    const correctedLang = replyLang ?? (/[؀-ۿ]/.test(b.text) ? 'ar' : 'en');
     let routeResult: Record<string, unknown> = {};
     try {
       if (route === 'create_objective') {
@@ -248,6 +280,28 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
         routeResult = { objectiveId: objective.id };
         if (voiceSession) recordTransition(db, voiceSession, 'creating_plan', 'server');
         sse(res, 'state', { state: 'creating_plan' });
+      } else if (route === 'confirm_plan' || route === 'reject_plan') {
+        // The voice path to actually starting execution: without this route
+        // a proposed plan could only be confirmed by tapping the UI card.
+        const proposed = db.all<{ id: string }>(`SELECT id FROM plans WHERE status = 'proposed' ORDER BY created_at DESC`);
+        let planId = String(routePayload.plan_id ?? '');
+        if (!proposed.some((p) => p.id === planId)) planId = proposed.length === 1 ? proposed[0].id : '';
+        if (!planId) {
+          routeResult = { error: 'no matching proposed plan' };
+          say = correctedLang === 'ar'
+            ? 'لم أجد خطة معلّقة مطابقة بانتظار موافقتك.'
+            : 'I could not find a matching plan awaiting your confirmation.';
+          sayReplaced = true;
+        } else if (route === 'confirm_plan') {
+          // No voice-session transition here: connecting_agents is a DERIVED
+          // client state driven by the real plan.confirmed/task.created
+          // events this call just emitted.
+          const confirmed = confirmPlan(db, planId, 'owner', modality === 'voice' ? 'voice' : 'api');
+          routeResult = { planId, taskIds: confirmed.taskIds };
+        } else {
+          rejectPlan(db, planId, 'owner', String(routePayload.reason ?? 'rejected by owner (voice)'));
+          routeResult = { planId, rejected: true };
+        }
       } else if (route === 'approve') {
         const approvalId = String(routePayload.approval_id ?? '');
         const decision = routePayload.decision === 'rejected' ? 'rejected' : 'approved';
@@ -267,15 +321,30 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
           });
           routeResult = { approvalId, decision };
         } else {
-          routeResult = { error: 'approval not found or not pending' };
-          say = modality === 'voice' && /[؀-ۿ]/.test(b.text)
-            ? 'لم أجد طلب موافقة معلّقًا بهذا الوصف.'
-            : 'I could not find that pending approval.';
+          // Models often say "approve" for a proposed PLAN; when no tool
+          // approval matches but exactly one plan awaits confirmation, the
+          // owner's intent is unambiguous — act on it instead of failing.
+          const proposed = db.all<{ id: string }>(`SELECT id FROM plans WHERE status = 'proposed'`);
+          if (proposed.length === 1) {
+            if (decision === 'approved') {
+              const confirmed = confirmPlan(db, proposed[0].id, 'owner', modality === 'voice' ? 'voice' : 'api');
+              routeResult = { planId: proposed[0].id, taskIds: confirmed.taskIds, viaApproveFallback: true };
+            } else {
+              rejectPlan(db, proposed[0].id, 'owner', 'rejected by owner (voice)');
+              routeResult = { planId: proposed[0].id, rejected: true, viaApproveFallback: true };
+            }
+          } else {
+            routeResult = { error: 'approval not found or not pending' };
+            say = correctedLang === 'ar'
+              ? 'لم أجد طلب موافقة معلّقًا بهذا الوصف.'
+              : 'I could not find that pending approval.';
+            sayReplaced = true;
+          }
         }
       } else if (route === 'cancel_task') {
         const taskId = String(routePayload.task_id ?? '');
-        const task = db.get<{ id: string; status: TaskStatus; agent_key: string }>(
-          'SELECT id, status, agent_key FROM tasks WHERE id = ?', taskId);
+        const task = db.get<{ id: string; status: TaskStatus; agent_key: string; objective_id: string }>(
+          'SELECT id, status, agent_key, objective_id FROM tasks WHERE id = ?', taskId);
         if (task) {
           try {
             assertTransitionTask(task.status, 'cancelled');
@@ -287,6 +356,9 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
               });
               audit(db, cfg.orgId, 'owner', 'task.cancel', 'task', task.id, { via: modality });
             });
+            // Dependents can never run and the objective may now be terminal.
+            cascadeDependencyFailure(db, cfg, task.id);
+            maybeCompleteObjective(db, cfg, task.objective_id);
             routeResult = { taskId, cancelled: true };
           } catch {
             routeResult = { error: `task is ${task.status}; cannot cancel` };
@@ -313,10 +385,12 @@ export function registerConverseRoutes(router: Router, db: Db, getAdapter: () =>
     } else {
       const rest = sentences.flush();
       if (rest) sse(res, 'say', { text: rest });
-      if (say.trim() !== extractor.emitted.trim()) {
+      if (sayReplaced) {
         // Route execution replaced the reply post-hoc (e.g. approval not
         // found): speak the corrected line; done.say stays authoritative for
-        // the displayed text.
+        // the displayed text. This is the ONLY re-speak trigger — a mere
+        // difference between streamed and parsed text must never re-emit
+        // (that was the "same greeting spoken twice" bug).
         for (const segment of sentenceSegments(say)) sse(res, 'say', { text: segment });
       }
     }

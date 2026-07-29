@@ -127,12 +127,21 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
 
   // ---- TTS relay: Fish Audio when keyed (falling back to local espeak on
   // upstream failure, e.g. no API credit), else local espeak-ng ----
-  const synthLocal = (res: Parameters<typeof json>[0], text: string, viaFallback: boolean): void => {
+  //
+  // Voice language: the client sends the segment's language; without it we
+  // detect the DOMINANT script (a single Arabic name inside an English
+  // sentence must not flip the whole sentence to the Arabic voice — the old
+  // any-char test did exactly that).
+  const dominantLang = (text: string): 'ar' | 'en' => {
+    const arabic = (text.match(/[؀-ۿݐ-ݿ]/g) ?? []).length;
+    const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+    return arabic > latin ? 'ar' : 'en';
+  };
+  const synthLocal = (res: Parameters<typeof json>[0], text: string, lang: 'ar' | 'en', viaFallback: boolean): void => {
     // Local synthesis: honest, offline, Arabic-aware. WAV streamed as it is
-    // generated; the voice follows the text's language.
+    // generated; the voice follows the segment's language.
     const bin = espeakBin()!;
-    const isArabic = /[؀-ۿ]/.test(text);
-    const child = spawn(bin, ['--stdin', '--stdout', '-v', isArabic ? 'ar' : 'en-us', '-s', '165']);
+    const child = spawn(bin, ['--stdin', '--stdout', '-v', lang === 'ar' ? 'ar' : 'en-us', '-s', '165']);
     res.writeHead(200, {
       'content-type': 'audio/wav',
       'cache-control': 'no-store',
@@ -150,16 +159,21 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
   router.post('/api/voice/tts', async ({ res, query, body }) => {
     if (!requireSession(query, res)) return;
     const key = env.FISH_AUDIO_API_KEY;
-    const text = (body as { text?: string } | undefined)?.text;
+    const b = body as { text?: string; lang?: string } | undefined;
+    const text = b?.text;
     if (!text || typeof text !== 'string') return errorJson(res, 400, 'BAD_REQUEST', 'text is required');
+    const lang: 'ar' | 'en' = b?.lang === 'ar' ? 'ar' : b?.lang === 'en' ? 'en' : dominantLang(text);
     const localOk = deps.localTts ?? espeakBin() !== null;
     if (!key) {
       if (!localOk) {
         return errorJson(res, 503, 'PROVIDER_NOT_CONFIGURED',
           'no server voice: set FISH_AUDIO_API_KEY, or install espeak-ng (sudo apt install espeak-ng); the client falls back to speechSynthesis');
       }
-      return synthLocal(res, text, false);
+      return synthLocal(res, text, lang, false);
     }
+    // Optional per-language Fish voices: FISH_AUDIO_VOICE_EN / _AR (reference
+    // ids), falling back to FISH_AUDIO_VOICE, else the account default.
+    const referenceId = (lang === 'ar' ? env.FISH_AUDIO_VOICE_AR : env.FISH_AUDIO_VOICE_EN) ?? env.FISH_AUDIO_VOICE;
     try {
       const upstream = await fetchImpl('https://api.fish.audio/v1/tts', {
         method: 'POST',
@@ -171,7 +185,10 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
           // paid credit can pick a paid model via FISH_AUDIO_MODEL.
           model: env.FISH_AUDIO_MODEL ?? 's2.1-pro-free',
         },
-        body: JSON.stringify({ text: text.slice(0, 2000), format: 'mp3', latency: 'balanced' }),
+        body: JSON.stringify({
+          text: text.slice(0, 2000), format: 'mp3', latency: 'balanced',
+          ...(referenceId ? { reference_id: referenceId } : {}),
+        }),
       });
       if (!upstream.ok || !upstream.body) {
         const detail = `Fish Audio ${upstream.status}: ${(await upstream.text()).slice(0, 300)}`;
@@ -179,7 +196,7 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
         // silence the voice when a local one exists.
         if (localOk) {
           console.warn(`[sira] tts falling back to local voice — ${detail}`);
-          return synthLocal(res, text, true);
+          return synthLocal(res, text, lang, true);
         }
         return errorJson(res, 502, 'PROVIDER_ERROR', detail);
       }
@@ -197,7 +214,7 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
       res.end();
     } catch (err) {
       if (!res.headersSent) {
-        if (localOk) return synthLocal(res, text, true);
+        if (localOk) return synthLocal(res, text, lang, true);
         errorJson(res, 502, 'PROVIDER_ERROR', err instanceof Error ? err.message : String(err));
       } else res.end();
     }

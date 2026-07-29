@@ -72,6 +72,14 @@ export class DeepgramTurnSTT {
   }
 }
 
+/** Segment language for the server voice: dominant script, never any-char
+ * (one Arabic name inside an English sentence must not flip the voice). */
+function segmentLang(text) {
+  const arabic = (text.match(/[؀-ۿݐ-ݿ]/g) ?? []).length;
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  return arabic > latin ? 'ar' : 'en';
+}
+
 /** Fish Audio TTS via the server relay: real <audio> playback drives the
  * speaking state and a WebAudio analyser provides the REAL output amplitude. */
 export class FishAudioTTS {
@@ -83,6 +91,13 @@ export class FishAudioTTS {
     // becomes true at audio.onplaying, so gating _next() on it alone lets a
     // second sentence start fetching mid-flight and OVERLAP the first.
     this.busy = false;
+    // Generation epoch: interrupt() bumps it, and _next() re-checks it after
+    // EVERY await. Without this, an interrupt landing while a fetch was in
+    // flight left that _next() parked; it then resumed, played the stale
+    // clip, and its onended chain drained the NEXT turn's queue in parallel
+    // with the fresh chain — two voices at once.
+    this.gen = 0;
+    this.fetchCtrl = null;
     this.available = true;
     this.audio = null;
     this.currentText = '';
@@ -107,6 +122,7 @@ export class FishAudioTTS {
   }
 
   async _next() {
+    const gen = this.gen;
     const text = this.queue.shift();
     if (text === undefined) {
       this.busy = false;
@@ -118,11 +134,16 @@ export class FishAudioTTS {
     this.store.transition('generating_speech', 'tts');
     const session = this.store.session;
     try {
+      this.fetchCtrl = new AbortController();
       const res = await fetch(`/api/voice/tts?session=${session.id}&token=${session.token}`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text, lang: segmentLang(text) }),
+        signal: this.fetchCtrl.signal,
       });
+      if (gen !== this.gen) return; // interrupted while fetching — stale chain dies here
       if (!res.ok) throw new Error(`tts ${res.status}`);
       const blob = await res.blob();
+      if (gen !== this.gen) return;
       const audio = new Audio(URL.createObjectURL(blob));
       this.audio = audio;
       this.currentText = text;
@@ -134,21 +155,26 @@ export class FishAudioTTS {
       this.analyser.connect(this.audioCtx.destination);
       this.buf = new Uint8Array(this.analyser.frequencyBinCount);
       audio.onplaying = () => {
+        if (gen !== this.gen) return;
         this.playing = true;
         this.store.transition('speaking', 'playback');
       };
       audio.onended = () => {
-        this.playing = false;
         URL.revokeObjectURL(audio.src);
+        if (gen !== this.gen) return;
+        this.playing = false;
         this._next();
       };
       audio.onerror = () => {
+        if (gen !== this.gen) return;
         this.playing = false;
         this.busy = false;
         this.store.transition('failed', 'tts');
       };
+      if (gen !== this.gen) return;
       await audio.play();
-    } catch {
+    } catch (err) {
+      if (gen !== this.gen || err?.name === 'AbortError') return; // interrupted, not failed
       this.playing = false;
       this.busy = false;
       this.store.transition('failed', 'tts');
@@ -157,12 +183,22 @@ export class FishAudioTTS {
 
   interrupt() {
     const startedAt = performance.now();
+    this.gen += 1; // every parked _next() dies at its next epoch check
+    this.fetchCtrl?.abort();
     const wasPlaying = this.playing;
     let remainder = '';
-    if (this.audio && wasPlaying) {
-      const ratio = this.audio.duration ? this.audio.currentTime / this.audio.duration : 0;
-      remainder = ratio < 0.9 ? this.currentText.slice(Math.floor(this.currentText.length * ratio)) : '';
-      this.audio.pause();
+    if (this.audio) {
+      if (wasPlaying) {
+        const ratio = this.audio.duration ? this.audio.currentTime / this.audio.duration : 0;
+        remainder = ratio < 0.9 ? this.currentText.slice(Math.floor(this.currentText.length * ratio)) : '';
+      }
+      // Always detach + pause — a created-but-not-yet-playing clip would
+      // otherwise start speaking AFTER the interrupt (over the next turn).
+      this.audio.onplaying = null;
+      this.audio.onended = null;
+      this.audio.onerror = null;
+      try { this.audio.pause(); } catch { /* never started */ }
+      this.audio = null;
     }
     const pending = this.queue.splice(0);
     this.playing = false;

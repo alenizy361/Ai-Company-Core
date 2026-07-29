@@ -221,8 +221,8 @@ test('AT-UI-7 network truth: real plan -> active nodes, real handoff inspectable
   if (skipIfNoChrome(t)) return;
   const cfg = loadSystemConfig();
   activateAgents(db, ['backend', 'qa']);
-  const beScript = [toolTurn('write_artifact', { name: 'impl.md', content: '# Impl\nDELIVERABLE.' }), completeTurn('done', ['impl.md'])];
-  const qaScript = [toolTurn('read_artifact', { name: 'impl.md' }), toolTurn('write_artifact', { name: 'report.md', content: '# QA PASS' }), completeTurn('verified', ['report.md'])];
+  const beScript = [toolTurn('write_artifact', { name: 'impl.md', content: '# Impl\nDELIVERABLE with real substance.' }), completeTurn('done', ['impl.md'])];
+  const qaScript = [toolTurn('read_artifact', { name: 'impl.md' }), toolTurn('write_artifact', { name: 'report.md', content: '# QA PASS — all acceptance checks verified.' }), completeTurn('verified', ['report.md'])];
   createConfirmedPlan({ db, cfg } as never, 'network truth objective', [
     { step_id: 'impl', agent: 'backend', spec: `${SPEC_PAD} ${MOCK(beScript)}`, expected_artifacts: ['impl.md'] },
     { step_id: 'verify', agent: 'qa', depends_on: ['impl'], spec: `${SPEC_PAD} ${MOCK(qaScript)}`, expected_artifacts: ['report.md'] },

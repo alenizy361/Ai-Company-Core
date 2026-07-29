@@ -15,17 +15,20 @@ export interface AdapterSelection {
   reason: string;
 }
 
-let cliProbeCache: { ok: boolean; detail: string } | null = null;
+// TTL'd, not permanent: a CLI login/install that happens after boot must
+// become visible without a process restart (health reads this via
+// describeAdapterSelection).
+const CLI_PROBE_TTL_MS = 5 * 60_000;
+let cliProbeCache: { result: { ok: boolean; detail: string }; at: number } | null = null;
 
 export function cliAvailable(): { ok: boolean; detail: string } {
-  if (cliProbeCache) return cliProbeCache;
+  if (cliProbeCache && Date.now() - cliProbeCache.at < CLI_PROBE_TTL_MS) return cliProbeCache.result;
   const which = spawnSync(resolveClaudeBin(), ['--version'], { timeout: 10000, encoding: 'utf8' });
-  if (which.error || which.status !== 0) {
-    cliProbeCache = { ok: false, detail: 'claude CLI not found (PATH + standard install locations checked)' };
-    return cliProbeCache;
-  }
-  cliProbeCache = probeCliAuth();
-  return cliProbeCache;
+  const result = which.error || which.status !== 0
+    ? { ok: false, detail: 'claude CLI not found (PATH + standard install locations checked)' }
+    : probeCliAuth();
+  cliProbeCache = { result, at: Date.now() };
+  return result;
 }
 
 export function selectAdapter(): AdapterSelection {

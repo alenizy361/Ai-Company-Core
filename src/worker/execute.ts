@@ -22,8 +22,15 @@ import { getTool } from '../tools/registry.ts';
 import type { ClaimedTask } from './claims.ts';
 import { taskStillMine } from './claims.ts';
 import { verifyCompletion } from './verify.ts';
-import { createHandoffsAndUnblock, maybeCompleteObjective } from './handoff.ts';
+import { cascadeDependencyFailure, createHandoffsAndUnblock, maybeCompleteObjective } from './handoff.ts';
 import type { VerificationCheck } from '../planning/plan-parser.ts';
+
+/**
+ * Branches parked in waitForApproval are excluded from the worker's
+ * concurrency budget (see src/worker/index.ts) — an away owner must not
+ * freeze the whole pipeline behind pending approvals.
+ */
+export const approvalWaits = { count: 0 };
 
 const TOOL_ACTION_SCHEMA: SchemaNode = {
   type: 'object',
@@ -219,7 +226,12 @@ export async function runExecution(
         });
       }
     });
-    if (!canRetry) maybeCompleteObjective(db, cfg, task.objective_id);
+    if (!canRetry) {
+      // Terminal failure: dependents can never run — cancel them honestly so
+      // the objective finalizes instead of hanging 'in_progress' forever.
+      cascadeDependencyFailure(db, cfg, task.id);
+      maybeCompleteObjective(db, cfg, task.objective_id);
+    }
     return canRetry ? 'requeued' : 'failed';
   };
 
@@ -304,6 +316,14 @@ export async function runExecution(
   };
 
   const messages: ChatMessage[] = [{ role: 'user', content: assembled.firstUserMessage }];
+  // Consecutive user turns are merged so the transcript stays strictly
+  // alternating even when an assistant turn is skipped (e.g. the model
+  // produced no text) — the Anthropic API rejects empty assistant content.
+  const pushUser = (content: string): void => {
+    const last = messages[messages.length - 1];
+    if (last?.role === 'user') last.content += `\n\n${content}`;
+    else messages.push({ role: 'user', content });
+  };
   let contractStrikes = 0;
   let verifyFailures = 0;
   let totalIn = 0;
@@ -357,7 +377,9 @@ export async function runExecution(
       return failTask(`model adapter error: ${detail}`, ['adapter_error'], retryable);
     }
 
-    messages.push({ role: 'assistant', content: text });
+    // Never persist an empty assistant turn (the next API call would 400 on
+    // empty content); the contract-violation branch below handles the retry.
+    if (text.trim().length > 0) messages.push({ role: 'assistant', content: text });
 
     // Parse + validate the single-action contract.
     const extracted = extractFirstJsonObject(text);
@@ -387,13 +409,10 @@ export async function runExecution(
       if (contractStrikes >= 3) {
         return failTask(`output contract violated 3 times; last error: ${contractError}`, ['contract_violation'], true);
       }
-      messages.push({
-        role: 'user',
-        content: JSON.stringify({
-          contract_violation: contractError,
-          instruction: 'Respond again with EXACTLY ONE valid JSON action object and nothing else.',
-        }),
-      });
+      pushUser(JSON.stringify({
+        contract_violation: contractError,
+        instruction: 'Respond again with EXACTLY ONE valid JSON action object and nothing else.',
+      }));
       continue;
     }
 
@@ -403,7 +422,13 @@ export async function runExecution(
 
       if (outcome.decision === 'approval_required') {
         setStatuses(state, 'waiting_for_approval', 'waiting_for_approval', 'approval_requested');
-        const approvalResult = await waitForApproval(db, cfg, outcome.approvalId as string, workerId, task.id);
+        approvalWaits.count++;
+        let approvalResult;
+        try {
+          approvalResult = await waitForApproval(db, cfg, outcome.approvalId as string, workerId, task.id);
+        } finally {
+          approvalWaits.count--;
+        }
         if (approvalResult === 'timeout') {
           return failTask('owner approval not received within the timeout', ['approval_timeout'], false);
         }
@@ -412,21 +437,18 @@ export async function runExecution(
         }
         if (approvalResult === 'rejected') {
           setStatuses(state, 'running', 'running', 'approval_rejected');
-          messages.push({
-            role: 'user',
-            content: JSON.stringify({ tool_result: { ok: false, status: 'rejected', detail: 'The owner rejected this action. Adapt your approach or fail honestly.' } }),
-          });
+          pushUser(JSON.stringify({ tool_result: { ok: false, status: 'rejected', detail: 'The owner rejected this action. Adapt your approach or fail honestly.' } }));
           continue;
         }
         // Approved: actually execute the recorded call now.
         setStatuses(state, 'running', 'running', 'approval_granted');
         const executed = await executeToolCall(db, toolCtx, outcome.toolCallId, String(action.tool), (action.args ?? {}) as Record<string, unknown>);
-        messages.push({ role: 'user', content: JSON.stringify({ tool_result: { status: 'approved_and_executed', ...formatResult(executed.result) } }) });
+        pushUser(JSON.stringify({ tool_result: { status: 'approved_and_executed', ...formatResult(executed.result) } }));
         continue;
       }
 
       setStatuses(state, 'running', 'running', 'tool_done');
-      messages.push({ role: 'user', content: JSON.stringify({ tool_result: formatResult(outcome.result) }) });
+      pushUser(JSON.stringify({ tool_result: formatResult(outcome.result) }));
       continue;
     }
 
@@ -466,13 +488,10 @@ export async function runExecution(
         );
       }
       setStatuses(state, 'running', 'running', 'verification_failed');
-      messages.push({
-        role: 'user',
-        content: JSON.stringify({
-          verification_failed: verdict.results.filter((r) => !r.ok),
-          instruction: 'Fix the unmet checks with tool actions, then claim completion again — or fail honestly if you cannot.',
-        }),
-      });
+      pushUser(JSON.stringify({
+        verification_failed: verdict.results.filter((r) => !r.ok),
+        instruction: 'Fix the unmet checks with tool actions, then claim completion again — or fail honestly if you cannot.',
+      }));
       continue;
     }
 

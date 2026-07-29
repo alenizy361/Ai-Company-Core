@@ -104,7 +104,7 @@ test('AT4: full state survives a service restart (close + reopen db)', async (t)
   const env = makeEnv();
   t.after(() => env.cleanup());
   activateAgents(env.db, ['backend']);
-  const script = [toolTurn('write_artifact', { name: 'a.md', content: 'x DELIVERABLE' }), completeTurn('ok', ['a.md'])];
+  const script = [toolTurn('write_artifact', { name: 'a.md', content: '# AT4\nDELIVERABLE body with real substance.' }), completeTurn('ok', ['a.md'])];
   const { objectiveId, planId } = createConfirmedPlan(env, 'AT4', [
     { step_id: 's1', agent: 'backend', spec: `${SPEC_PAD} ${MOCK(script)}`, expected_artifacts: ['a.md'] },
     { step_id: 's2', agent: 'backend', depends_on: ['s1'], spec: `${SPEC_PAD} ${MOCK(script)}`, expected_artifacts: ['a.md'] },

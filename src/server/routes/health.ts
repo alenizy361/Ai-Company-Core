@@ -34,12 +34,17 @@ export function registerHealthRoute(
     }
 
     const workers = dbOk
-      ? db.all<{ id: string; last_heartbeat_at: number; status: string }>(
-          `SELECT id, last_heartbeat_at, status FROM workers WHERE last_heartbeat_at > ?`,
+      ? db.all<{ id: string; last_heartbeat_at: number; status: string; adapter: string | null; adapter_reason: string | null }>(
+          `SELECT id, last_heartbeat_at, status, adapter, adapter_reason FROM workers WHERE last_heartbeat_at > ? ORDER BY last_heartbeat_at DESC`,
           now - cfg.staleWorkerMs * 4,
         )
       : [];
     const freshWorkers = workers.filter((w) => w.status === 'online' && w.last_heartbeat_at > now - cfg.staleWorkerMs);
+    // Adapter truth: the LIVE worker's recorded adapter wins over the API
+    // server's own environment probe — the two processes can disagree (e.g.
+    // the worker's systemd PATH misses the claude binary and it silently
+    // degraded to mock while this server still sees a healthy CLI).
+    const workerAdapter = freshWorkers.find((w) => w.adapter);
 
     const voiceCfg = loadVoiceConfig();
     const voiceProviders = {
@@ -73,7 +78,9 @@ export function registerHealthRoute(
         staleAfterMs: cfg.staleWorkerMs,
       },
       sse: { clients: hub.clientCount(), lastSeq: hub.lastSeq(), lastEventAt: lastEvent?.created_at ?? null },
-      adapter: getAdapterInfo(),
+      adapter: workerAdapter
+        ? { name: workerAdapter.adapter as string, reason: `${workerAdapter.adapter_reason ?? ''} (reported by the live worker)` }
+        : getAdapterInfo(),
       voiceProviders,
       pendingApprovals,
     });

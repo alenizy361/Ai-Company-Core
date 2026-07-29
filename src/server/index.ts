@@ -18,21 +18,27 @@ import { registerSearchRoutes } from './routes/search.ts';
 import { registerHealthRoute, type AdapterInfo } from './routes/health.ts';
 import { describeAdapterSelection, selectAdapter } from '../adapters/select.ts';
 import type { ModelAdapter } from '../adapters/types.ts';
-import { seedPromptsFromDisk } from '../promptreg/registry.ts';
+import { activateBaselineAgentPrompts, seedPromptsFromDisk } from '../promptreg/registry.ts';
 
 const paths = loadPaths();
 const cfg = loadSystemConfig();
 const db = openDb(paths.dbPath, paths.migrationsDir);
 seedOrgAndAgents(db);
 seedPromptsFromDisk(db, paths.promptsDir);
+activateBaselineAgentPrompts(db, cfg.orgId);
 
 const hub = new SseHub(db, cfg.ssePollMs);
 const router = new Router();
 
-let adapterInfoCache: AdapterInfo | null = null;
+// TTL'd so a claude login / key change after boot surfaces on /api/health
+// without restarting the server (the worker's recorded adapter still wins
+// when a live worker exists — see routes/health.ts).
+let adapterInfoCache: { info: AdapterInfo; at: number } | null = null;
 function getAdapterInfo(): AdapterInfo {
-  if (!adapterInfoCache) adapterInfoCache = describeAdapterSelection();
-  return adapterInfoCache;
+  if (!adapterInfoCache || Date.now() - adapterInfoCache.at > 60_000) {
+    adapterInfoCache = { info: describeAdapterSelection(), at: Date.now() };
+  }
+  return adapterInfoCache.info;
 }
 
 let converseAdapter: ModelAdapter | null = null;

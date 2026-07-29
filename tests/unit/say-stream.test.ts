@@ -58,6 +58,31 @@ test('JSON without a say key emits nothing (caller full-parse decides)', () => {
   assert.equal(extractor.emitted, '');
 });
 
+test('fence-wrapped contract JSON streams the say VALUE, not the raw JSON (the "spoken twice" bug)', () => {
+  const say = 'مرحبا! كيف أساعدك اليوم؟';
+  const full = '```json\n{"route":"reply","say":"' + say + '"}\n```';
+  for (const size of [1, 5, 16]) {
+    const extractor = new SayStreamExtractor();
+    const got = feed(extractor, full, size);
+    assert.equal(got, say, `chunk size ${size} — must never speak the JSON body aloud`);
+    assert.equal(extractor.rawMode, false);
+  }
+});
+
+test('prose preamble before the JSON object still routes through say extraction', () => {
+  const full = 'Here is my response: {"route":"reply","say":"All good."}';
+  const extractor = new SayStreamExtractor();
+  assert.equal(feed(extractor, full, 8), 'All good.');
+});
+
+test('short non-JSON reply is released raw at finish (nothing lost, nothing doubled)', () => {
+  const raw = 'Plain short answer';
+  const extractor = new SayStreamExtractor();
+  const got = feed(extractor, raw, 6);
+  assert.equal(got, raw);
+  assert.ok(extractor.rawMode);
+});
+
 test('sentence buffer: merges short sentences, Arabic terminators, flush remainder', () => {
   const sb = new SentenceBuffer(20);
   const out: string[] = [];

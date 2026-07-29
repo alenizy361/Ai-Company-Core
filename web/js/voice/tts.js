@@ -28,6 +28,11 @@ export class SpeechSynthesisTTS {
     return 'speechSynthesis' in window && speechSynthesis.getVoices().length > 0;
   }
 
+  /** Anything queued or sounding — the barge-in gesture keys off this. */
+  get busy() {
+    return this.playing || this.queue.length > 0;
+  }
+
   /**
    * speechSynthesis exposes no output level, so the ONLY honest per-moment
    * signal is the real word-boundary event: amplitude decays from each real
@@ -56,7 +61,16 @@ export class SpeechSynthesisTTS {
     }
     this.store.transition('generating_speech', 'tts');
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = /[؀-ۿ]/.test(text) ? 'ar-SA' : 'en-US';
+    // Dominant script decides the voice — a single Arabic word inside an
+    // English sentence must not flip the whole sentence to an Arabic voice.
+    const arabicChars = (text.match(/[؀-ۿݐ-ݿ]/g) ?? []).length;
+    const latinChars = (text.match(/[A-Za-z]/g) ?? []).length;
+    const lang = arabicChars > latinChars ? 'ar' : 'en';
+    utterance.lang = lang === 'ar' ? 'ar-SA' : 'en-US';
+    // Pick an explicit matching voice when one exists; the browser default
+    // may be the wrong language entirely.
+    const voice = speechSynthesis.getVoices().find((v) => v.lang?.toLowerCase().startsWith(lang));
+    if (voice) utterance.voice = voice;
     utterance.rate = 1.02;
     this.currentText = text;
     this.spokenChars = 0;

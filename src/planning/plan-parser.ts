@@ -196,9 +196,16 @@ export function parsePlanResponse(
           errors.push({ code: 'INVALID_VERIFICATION', stepId: label, detail: `${type} check requires "artifact"` });
           continue;
         }
-        if (type === 'contains' && typeof check.needle !== 'string') {
-          errors.push({ code: 'INVALID_VERIFICATION', stepId: label, detail: 'contains check requires "needle"' });
+        if (type === 'contains' && (typeof check.needle !== 'string' || check.needle.trim().length === 0)) {
+          errors.push({ code: 'INVALID_VERIFICATION', stepId: label, detail: 'contains check requires a non-empty "needle" (an empty needle matches everything and verifies nothing)' });
           continue;
+        }
+        if (type === 'json_schema') {
+          const schema = check.schema;
+          if (!schema || typeof schema !== 'object' || Array.isArray(schema) || Object.keys(schema).length === 0) {
+            errors.push({ code: 'INVALID_VERIFICATION', stepId: label, detail: 'json_schema check requires a non-empty "schema" object (without one, any JSON passes)' });
+            continue;
+          }
         }
         if (type === 'command') {
           if (typeof check.cmd !== 'string' || check.cmd.trim().length === 0) {

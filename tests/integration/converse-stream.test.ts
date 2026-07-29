@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { makeEnv } from '../helpers/fixtures.ts';
+import { makeEnv, activateAgents } from '../helpers/fixtures.ts';
 import { Router, errorJson } from '../../src/server/router.ts';
 import { registerConverseRoutes } from '../../src/server/routes/converse.ts';
 import { MockAdapter } from '../../src/adapters/mock.ts';
@@ -104,13 +104,89 @@ test('client abort mid-generation: no assistant row, aborted model request, user
   assert.equal(mr?.error, 'aborted by client');
 });
 
-test('replyLang setting injects the forced-language instruction', async (t) => {
+test('fence-wrapped contract reply is spoken exactly ONCE (the "مرحبا مرحبا" double-say bug)', async (t) => {
   const env = makeEnv();
   t.after(() => env.cleanup());
-  const seen: string[] = [];
+  const GREETING = 'مرحبا! كيف أساعدك اليوم؟';
+  class FencedAdapter extends MockAdapter {
+    override async complete(req: CompletionRequest): Promise<CompletionResult> {
+      const base = await super.complete(req);
+      return { ...base, text: '```json\n' + JSON.stringify({ route: 'reply', say: GREETING }) + '\n```' };
+    }
+  }
+  const router = new Router();
+  registerConverseRoutes(router, env.db, () => new FencedAdapter());
+  const srv = await startServer(router);
+  t.after(srv.close);
+
+  const res = await fetch(`${srv.base}/api/converse`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'مرحبا', modality: 'voice' }),
+  });
+  const events = parseSse(await res.text());
+  const says = events.filter((e) => e.event === 'say').map((e) => String(e.data.text));
+  const spoken = says.join(' ');
+  const occurrences = spoken.split('كيف أساعدك').length - 1;
+  assert.equal(occurrences, 1, `the greeting must be spoken exactly once, got: ${JSON.stringify(says)}`);
+  assert.ok(!spoken.includes('```') && !spoken.includes('"route"'), 'no JSON syntax is ever spoken aloud');
+  const done = events.find((e) => e.event === 'done');
+  assert.equal(String(done?.data.say), GREETING);
+});
+
+test('converse confirm_plan route actually confirms the proposed plan and creates tasks', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  activateAgents(env.db, ['backend']);
+  // A proposed plan awaiting confirmation (the state the owner was stuck in).
+  const now = Date.now();
+  const objectiveId = 'obj_convconfirm';
+  env.db.run(`INSERT INTO objectives (id, org_id, title, status, created_at, updated_at) VALUES (?, ?, 'voice confirm', 'plan_proposed', ?, ?)`,
+    objectiveId, env.cfg.orgId, now, now);
+  const planId = 'pln_convconfirm';
+  const parsed = {
+    reply: 'plan ready', team: ['backend'],
+    plan: [{
+      step_id: 's1', agent: 'backend', title: 'do the work',
+      spec: 'A complete executable specification with enough detail to satisfy the plan validator minimum.',
+      depends_on: [], required_inputs: [], expected_artifacts: ['out.md'],
+      acceptance_criteria: ['deliverable exists'], verification: [], priority: 3, status: 'queued',
+    }],
+  };
+  env.db.run(`INSERT INTO plans (id, objective_id, version, raw_json, reply, status, created_at) VALUES (?, ?, 1, ?, 'plan ready', 'proposed', ?)`,
+    planId, objectiveId, JSON.stringify(parsed), now);
+
+  class ConfirmAdapter extends MockAdapter {
+    override async complete(req: CompletionRequest): Promise<CompletionResult> {
+      const base = await super.complete(req);
+      return { ...base, text: JSON.stringify({ route: 'confirm_plan', plan_id: planId, say: 'Starting the team now.' }) };
+    }
+  }
+  const router = new Router();
+  registerConverseRoutes(router, env.db, () => new ConfirmAdapter());
+  const srv = await startServer(router);
+  t.after(srv.close);
+
+  const res = await fetch(`${srv.base}/api/converse`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'نفّذ الخطة', modality: 'voice' }),
+  });
+  const events = parseSse(await res.text());
+  const route = events.find((e) => e.event === 'route');
+  assert.equal(route?.data.route, 'confirm_plan');
+  assert.equal(route?.data.planId, planId);
+  assert.equal(env.db.get<{ status: string }>('SELECT status FROM plans WHERE id = ?', planId)?.status, 'confirmed',
+    'the voice path can now actually start execution');
+  assert.equal(env.db.get<{ status: string }>('SELECT status FROM objectives WHERE id = ?', objectiveId)?.status, 'in_progress');
+  assert.equal(env.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM tasks WHERE objective_id = ?', objectiveId)?.n, 1);
+});
+
+test('replyLang setting rewrites the SYSTEM contract language rule', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const seenSystem: string[] = [];
   class CaptureAdapter extends MockAdapter {
     override complete(req: CompletionRequest): Promise<CompletionResult> {
-      seen.push(req.messages[req.messages.length - 1].content);
+      seenSystem.push(req.system);
       return super.complete(req);
     }
   }
@@ -123,11 +199,16 @@ test('replyLang setting injects the forced-language instruction', async (t) => {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ text: 'كيف حال الشركة الآن؟', replyLang: 'en' }),
   })).text();
-  assert.match(seen[0], /always write "say" in English/, 'forced-English instruction present');
+  // The lock must live in the system contract and REPLACE the mirror rule —
+  // a user-turn note contradicting a system-level "Arabic in -> Arabic out"
+  // loses to it, which is exactly how the setting used to get ignored.
+  assert.match(seenSystem[0], /ALWAYS in English/, 'forced-English rule present in the system contract');
+  assert.ok(!/Arabic in -> Arabic out/.test(seenSystem[0]), 'mirror rule replaced, not contradicted');
 
   await (await fetch(`${srv.base}/api/converse`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ text: 'how are things?', replyLang: 'auto' }),
   })).text();
-  assert.ok(!/OWNER SETTING/.test(seen[1]), 'auto mode mirrors the speaker (no forced instruction)');
+  assert.match(seenSystem[1], /Arabic in -> Arabic out/, 'auto mode keeps the mirror rule');
+  assert.ok(!/ALWAYS in English/.test(seenSystem[1]), 'no forced language in auto mode');
 });

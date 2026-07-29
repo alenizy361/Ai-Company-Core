@@ -4,10 +4,12 @@
 import { el, mount, tech, prose } from '../core/dom.js';
 import { t, fmtTime, fmtNumber } from '../i18n/i18n.js';
 import { openLayer, closeLayer } from '../a11y/focus.js';
+import { registerRegion } from './shell.js';
 
 export function buildInspector({ backend, onError }) {
   const panel = document.getElementById('inspector');
   const ov = document.getElementById('inspectorOv');
+  let lastTarget = null;
 
   function close() {
     panel.classList.remove('open');
@@ -200,13 +202,19 @@ export function buildInspector({ backend, onError }) {
     );
   }
 
-  return {
-    close,
-    select(target) {
-      if (target.kind === 'agent') void showAgent(target.key);
-      else if (target.kind === 'task') void showTask(target.id);
-      else if (target.kind === 'execution') void showExecution(target.id);
-      else if (target.kind === 'edge') showEdge(target);
-    },
-  };
+  function select(target) {
+    lastTarget = target;
+    if (target.kind === 'agent') void showAgent(target.key);
+    else if (target.kind === 'task') void showTask(target.id);
+    else if (target.kind === 'execution') void showExecution(target.id);
+    else if (target.kind === 'edge') showEdge(target);
+  }
+
+  // Language toggle re-renders every registered region; an open inspector
+  // must not keep its previous-language headings until closed and reopened.
+  registerRegion(() => {
+    if (panel.classList.contains('open') && lastTarget) select(lastTarget);
+  });
+
+  return { close, select };
 }

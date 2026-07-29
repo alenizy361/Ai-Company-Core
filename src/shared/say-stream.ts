@@ -8,6 +8,14 @@
 // exactly what the non-streaming fallback would have shown.
 
 const SAY_KEY_RE = /"say"\s*:\s*"/;
+/**
+ * How much prose we tolerate before declaring the reply raw (non-contract).
+ * Models sometimes wrap contract JSON in a code fence or a short preamble —
+ * declaring raw on the FIRST non-'{' char made the client speak the whole
+ * JSON body aloud and (with the post-route re-emit) speak the say twice.
+ * Any '{' inside this window keeps us waiting for the say key instead.
+ */
+const RAW_LOOKAHEAD_CHARS = 48;
 
 export class SayStreamExtractor {
   private raw = '';
@@ -27,19 +35,27 @@ export class SayStreamExtractor {
     return this.mode === 'closed';
   }
 
+  /** True when the reply streamed through as raw prose (no say key found). */
+  get rawMode(): boolean {
+    return this.mode === 'raw';
+  }
+
   /** Feed a model delta; returns newly-stable decoded text ('' if none yet). */
   push(delta: string): string {
     this.raw += delta;
     if (this.mode === 'pending') {
       const lead = this.raw.trimStart();
-      if (lead.length > 0 && !lead.startsWith('{')) {
-        this.mode = 'raw';
-      } else {
+      if (lead.includes('{')) {
+        // JSON is coming (possibly after a fence/preamble): wait for the say
+        // key and stream its decoded value only.
         const m = SAY_KEY_RE.exec(this.raw);
         if (m) {
           this.mode = 'json';
           this.scanPos = m.index + m[0].length;
         }
+      } else if (lead.length >= RAW_LOOKAHEAD_CHARS) {
+        // A real prose reply (mock notice, contract ignored): stream it raw.
+        this.mode = 'raw';
       }
     }
     if (this.mode === 'raw') {
@@ -56,8 +72,19 @@ export class SayStreamExtractor {
   finish(): string {
     if (this.mode === 'json') return this.scanValue(true);
     if (this.mode === 'pending') {
-      // Never found a say key; nothing was emitted. The caller's full-text
-      // parse decides what to show — do not guess here.
+      const lead = this.raw.trimStart();
+      if (lead.length > 0 && !lead.includes('{')) {
+        // Short prose reply that never hit the lookahead threshold: it is
+        // definitively raw now the stream is over — release it.
+        this.mode = 'raw';
+        const out = this.raw.slice(this.rawEmitted);
+        this.rawEmitted = this.raw.length;
+        this.emittedText += out;
+        return out;
+      }
+      // A '{' was seen but no say key ever materialized (non-contract JSON):
+      // nothing was emitted. The caller's full-text parse decides what to
+      // show — do not guess here.
       return '';
     }
     return '';

@@ -23,11 +23,13 @@ export function buildPalette({ onAsk, onNavigate, onOpenResult }) {
 
   function navTargets() {
     const replyLang = prefs.get('replyLang') || 'auto';
+    const speechLang = prefs.get('speechLangMode') || 'auto';
     return [
       { id: 'chat', label: t('palette.nav.chat') },
       { id: 'activity', label: t('palette.nav.activity') },
       { id: 'language', label: t('palette.nav.language') },
       { id: 'replyLang', label: t('palette.nav.replyLang', { mode: t(`replyLang.${replyLang}`) }) },
+      { id: 'speechLang', label: t('palette.nav.speechLang', { mode: t(`speechLang.${speechLang}`) }) },
       { id: 'motion', label: t('palette.nav.motion') },
     ];
   }

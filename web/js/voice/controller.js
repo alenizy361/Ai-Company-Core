@@ -7,7 +7,7 @@ import { AudioCapture } from './capture.js';
 import { WebSpeechSTT } from './stt.js';
 import { SpeechSynthesisTTS } from './tts.js';
 import { prefs } from '../core/prefs.js';
-import { isArabic } from '../i18n/bidi.js';
+import { isArabic, langOf } from '../i18n/bidi.js';
 
 async function* sseStream(response) {
   const reader = response.body.getReader();
@@ -50,6 +50,12 @@ export class VoiceController {
     this.holding = false;
     this.continuous = prefs.bool('continuous');
     this.abortCtrl = null;
+    this.generating = false;
+    // Turn epoch: bumped by every new turn and every hard stop. Events from
+    // a superseded/stopped stream are dropped instead of re-enqueuing TTS —
+    // this is what makes an interrupt actually FINAL.
+    this.turnEpoch = 0;
+    this.activeTurn = 0;
     this.tts.onRemainder = (unspoken) => ui.onReply?.(`… ${unspoken}`, { interrupted: true });
     this.store.subscribe((state, from) => {
       ui.onStateChange?.(state, from);
@@ -75,6 +81,11 @@ export class VoiceController {
             // Both are served by the same /api/voice/tts relay; espeak is the
             // zero-key local voice (Linux browsers often have NO built-in
             // speechSynthesis voices, which plays as pure silence).
+            // Silence the outgoing engine first: a turn started before init
+            // resolved may still hold queued speechSynthesis utterances, and
+            // interrupt()/stop only reach the CURRENT this.tts — swapping
+            // without this could leave two engines speaking at once.
+            this.tts.interrupt?.();
             this.tts = new ext.FishAudioTTS(this.store);
             this.tts.onRemainder = (unspoken) => this.ui.onReply?.(`… ${unspoken}`, { interrupted: true });
           }
@@ -119,8 +130,11 @@ export class VoiceController {
     return this.capture.muted;
   }
 
-  /** Stop an in-flight generation (the Stop control). */
+  /** Stop an in-flight generation (the Stop control / hard barge-in). */
   stopGeneration() {
+    // Epoch first: any say/delta already in flight from the dying stream is
+    // dropped, so speech cannot resume a moment after the stop.
+    this.turnEpoch += 1;
     this.abortCtrl?.abort();
     this.tts.interrupt();
   }
@@ -137,14 +151,24 @@ export class VoiceController {
     this.stt.stop?.();
   }
 
-  /** Tap-to-talk. If SIRA is speaking, this is the barge-in. */
+  /** Tap-to-talk. If SIRA is speaking or generating, this is the barge-in. */
   async talk() {
     if (this.capture.muted) return;
     const t0 = performance.now();
 
-    if (this.tts.playing) {
+    // Barge-in covers the WHOLE audible pipeline: playing audio, queued
+    // sentences, and clips still being synthesized (busy) — not just the
+    // instant a clip is audible.
+    if (this.tts.playing || this.tts.busy) {
       const { stopMs } = this.tts.interrupt();
       this.store.reportMetrics([{ metric: 'barge_in_stop', value_ms: stopMs }]);
+    }
+    if (this.generating) {
+      // Tap during generation = hard stop. Without this, the stream kept
+      // running and every later say event restarted speech ("it refuses to
+      // stop talking"). A second tap starts the next turn.
+      this.stopGeneration();
+      return;
     }
     if (this.busy) return;
     this.busy = true;
@@ -180,24 +204,57 @@ export class VoiceController {
     }
   }
 
-  /** Shared by voice turns and the typed chat drawer (same conversation). */
-  async sendText(text, modality, t0 = performance.now()) {
-    // Every message (typed or spoken) teaches the recognizer which language
-    // to listen for next — so typing Arabic once fixes Arabic voice input
-    // even while the interface stays English.
-    const detected = isArabic(text) ? 'ar' : 'en';
+  /**
+   * Speech-recognition language. Pinned ('en'/'ar' via the speechLang
+   * setting) = never auto-learned. Auto = learned from the DOMINANT script
+   * of each message — the old any-Arabic-char test flipped recognition to
+   * Arabic on a single borrowed word and then ar-SA transcribed English
+   * speech as Arabic script, locking the loop shut.
+   */
+  learnSpeechLang(text) {
+    const mode = prefs.get('speechLangMode') || 'auto';
+    if (mode === 'en' || mode === 'ar') {
+      this.speechLang = mode;
+      return;
+    }
+    const detected = langOf(text);
     if (detected !== this.speechLang) {
       this.speechLang = detected;
       prefs.set('speechLang', detected);
     }
-    this.abortCtrl = new AbortController();
+  }
+
+  /** Shared by voice turns and the typed chat drawer (same conversation). */
+  async sendText(text, modality, t0 = performance.now()) {
+    this.learnSpeechLang(text);
+    // Single-flight: a new turn supersedes any stream still generating —
+    // two concurrent streams would interleave text and speak over each other,
+    // and Stop would only reach the newer one.
+    if (this.generating) {
+      this.abortCtrl?.abort();
+      if (modality === 'voice') this.tts.interrupt();
+    }
+    const epoch = ++this.turnEpoch;
+    // activeTurn tracks which turn OWNS the generating flag: a hard stop
+    // bumps turnEpoch (killing event handling) but does not start a new
+    // turn, so the dying stream must still clear the flag on its way out.
+    this.activeTurn = epoch;
+    const ctrl = new AbortController();
+    this.abortCtrl = ctrl;
+    this.generating = true;
     this.ui.onGenerating?.(true);
+    const generationDone = () => {
+      if (this.activeTurn === epoch) {
+        this.generating = false;
+        this.ui.onGenerating?.(false);
+      }
+    };
     let response;
     try {
       response = await fetch('/api/converse', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        signal: this.abortCtrl.signal,
+        signal: ctrl.signal,
         body: JSON.stringify({
           text,
           modality,
@@ -210,8 +267,8 @@ export class VoiceController {
       });
       if (!response.ok || !response.body) throw new Error(`converse ${response.status}`);
     } catch (err) {
-      this.ui.onGenerating?.(false);
-      if (this.abortCtrl.signal.aborted) {
+      generationDone();
+      if (ctrl.signal.aborted) {
         if (['thinking', 'creating_plan'].includes(this.store.state)) this.store.mirror('ready');
         return { aborted: true };
       }
@@ -226,6 +283,12 @@ export class VoiceController {
     let aborted = false;
     try {
       for await (const { event, data } of sseStream(response)) {
+        // A hard stop or a superseding turn bumped the epoch: this stream's
+        // remaining events are dead — never let them re-enqueue speech.
+        if (epoch !== this.turnEpoch) {
+          aborted = true;
+          break;
+        }
         if (event === 'delta') {
           deltaText += data.text;
           this.ui.onDelta?.(deltaText);
@@ -254,18 +317,22 @@ export class VoiceController {
         } else if (event === 'done') {
           this.ui.onReply?.(data.say ?? deltaText ?? fullSay, { done: true });
         } else if (event === 'error') {
-          this.ui.onError?.({ key: 'error.modelUnavailable', params: { reference: data.reference ?? '' } });
+          // 'refusal' = the model declined this request (not an outage).
+          this.ui.onError?.({
+            key: data.code === 'refusal' ? 'error.modelDeclined' : 'error.modelUnavailable',
+            params: { reference: data.reference ?? '' },
+          });
         }
       }
     } catch (err) {
-      if (this.abortCtrl.signal.aborted) {
+      if (ctrl.signal.aborted) {
         aborted = true;
       } else {
         this.store.transition('reconnecting', 'transport');
         this.ui.onError?.({ key: 'error.streamInterrupted', params: { detail: err.message } });
       }
     } finally {
-      this.ui.onGenerating?.(false);
+      generationDone();
     }
     if (['thinking', 'creating_plan'].includes(this.store.state)) this.store.mirror('ready');
     if (modality === 'voice' && fullSay && !aborted) {

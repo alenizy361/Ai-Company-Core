@@ -66,6 +66,7 @@ export default {
   'chat.planReady': 'Plan ready for review: {reply}',
   'chat.objectiveCompleted': 'Objective completed.',
   'chat.objectiveFailed': 'Objective failed — check the activity view.',
+  'chat.objectiveCancelled': 'Objective cancelled — its remaining tasks will not run.',
   'chat.needsApproval': 'Needs your approval: {subject}',
 
   // Activity view.
@@ -183,12 +184,17 @@ export default {
   'replyLang.auto': 'match my language',
   'replyLang.en': 'English only',
   'replyLang.ar': 'Arabic only',
+  'palette.nav.speechLang': 'Listening language: {mode}',
+  'speechLang.auto': 'detect automatically',
+  'speechLang.en': 'English only',
+  'speechLang.ar': 'Arabic only',
   'palette.nav.motion': 'Toggle reduced motion',
 
   // Errors / degradation.
   'error.backendUnreachable': 'Backend unreachable: {detail}',
   'error.streamInterrupted': 'Stream interrupted: {detail}',
   'error.modelUnavailable': 'Model unavailable (ref {reference})',
+  'error.modelDeclined': 'The model declined this request — try rephrasing (ref {reference})',
   'error.micUnavailable': 'Microphone unavailable — type instead',
   'error.sttUnavailable': 'Speech recognition unavailable in this browser — type instead',
   'error.ttsUnavailable': 'Speech output is unavailable: this browser has no speech voices. Install the server voice (sudo apt install espeak-ng, then restart SIRA) or add FISH_AUDIO_API_KEY.',

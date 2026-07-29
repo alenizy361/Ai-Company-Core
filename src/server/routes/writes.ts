@@ -9,6 +9,7 @@ import { loadSystemConfig } from '../../shared/config.ts';
 import { emitEvent, audit } from '../../shared/events.ts';
 import { assertTransitionTask, type TaskStatus } from '../../shared/statuses.ts';
 import { createObjective, confirmPlan, rejectPlan } from '../../planning/plan-service.ts';
+import { cascadeDependencyFailure, maybeCompleteObjective } from '../../worker/handoff.ts';
 
 export function registerWriteRoutes(router: Router, db: Db): void {
   const cfg = loadSystemConfig();
@@ -65,8 +66,8 @@ export function registerWriteRoutes(router: Router, db: Db): void {
   });
 
   router.post('/api/tasks/:id/cancel', ({ res, params }) => {
-    const task = db.get<{ id: string; status: TaskStatus; agent_key: string }>(
-      'SELECT id, status, agent_key FROM tasks WHERE id = ?', params.id,
+    const task = db.get<{ id: string; status: TaskStatus; agent_key: string; objective_id: string }>(
+      'SELECT id, status, agent_key, objective_id FROM tasks WHERE id = ?', params.id,
     );
     if (!task) return errorJson(res, 404, 'NOT_FOUND', 'unknown task');
     try {
@@ -83,6 +84,10 @@ export function registerWriteRoutes(router: Router, db: Db): void {
       });
       audit(db, cfg.orgId, 'owner', 'task.cancel', 'task', task.id, { from: task.status });
     });
+    // Dependents of a cancelled task can never run; the objective may now be
+    // fully terminal — both must be handled here, not just on worker paths.
+    cascadeDependencyFailure(db, cfg, task.id);
+    maybeCompleteObjective(db, cfg, task.objective_id);
     json(res, 200, { ok: true });
   });
 

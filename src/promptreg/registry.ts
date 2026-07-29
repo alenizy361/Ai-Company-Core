@@ -9,6 +9,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Db } from '../shared/db.ts';
 import { ulid } from '../shared/ids.ts';
+import { emitEvent, audit } from '../shared/events.ts';
 
 export type PromptScope = 'core' | 'agent' | 'task';
 
@@ -93,6 +94,40 @@ export function seedPromptsFromDisk(db: Db, promptsDir: string): SeedResult[] {
     }
   }
   return results;
+}
+
+/**
+ * First-boot activation: agents ship with baseline prompts and must be usable
+ * before any eval has run. Without this, a fresh deployment where
+ * `npm run eval -- --promote` was skipped (or scored under the gate) has NO
+ * active CEO prompt — every planning attempt crashes — and no assignable
+ * agents — every plan step is rejected. Evals still gate every LATER prompt
+ * version; this only activates the shipped baseline when nothing is active.
+ */
+export function activateBaselineAgentPrompts(db: Db, orgId: string): string[] {
+  const rows = db.all<{ key: string; version_id: string }>(
+    `SELECT a.key, pv.id AS version_id FROM agents a
+     JOIN prompts p ON p.scope = 'agent' AND p.key = a.key
+     JOIN prompt_versions pv ON pv.prompt_id = p.id
+     WHERE a.active_prompt_version_id IS NULL
+       AND pv.version = (SELECT MAX(version) FROM prompt_versions WHERE prompt_id = p.id)`,
+  );
+  const now = Date.now();
+  const activated: string[] = [];
+  for (const row of rows) {
+    db.transaction(() => {
+      db.run(`UPDATE prompt_versions SET status = 'active', updated_at = ? WHERE id = ?`, now, row.version_id);
+      db.run(`UPDATE agents SET lifecycle = 'active', active_prompt_version_id = ?, updated_at = ? WHERE key = ?`,
+        row.version_id, now, row.key);
+      emitEvent(db, {
+        type: 'prompt.promoted', orgId, agentKey: row.key,
+        payload: { versionId: row.version_id, baseline: true },
+      });
+      audit(db, orgId, 'boot', 'prompt.activate_baseline', 'prompt_version', row.version_id, { agentKey: row.key });
+    });
+    activated.push(row.key);
+  }
+  return activated;
 }
 
 /** Ordered core files forming the shared immutable core. Order is part of the contract. */

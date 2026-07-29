@@ -116,8 +116,12 @@ voice.lang = locale.get();
 locale.subscribe((lang) => {
   voice.lang = lang;
   // An explicit interface-language choice also retargets speech recognition
-  // (the next spoken/typed message can still switch it back).
-  voice.speechLang = lang;
+  // — persisted, or a reload would resurrect the auto-learned value. A
+  // pinned speech language (speechLangMode en/ar) always wins.
+  if ((prefs.get('speechLangMode') || 'auto') === 'auto') {
+    voice.speechLang = lang;
+    prefs.set('speechLang', lang);
+  }
 });
 
 function setReplyText(text) {
@@ -178,6 +182,18 @@ const palette = buildPalette({
       const next = order[(order.indexOf(prefs.get('replyLang') || 'auto') + 1) % order.length];
       prefs.set('replyLang', next);
       conversation.addSystem(`🗣 ${t('palette.nav.replyLang', { mode: t(`replyLang.${next}`) })}`);
+    }
+    else if (id === 'speechLang') {
+      // What language SIRA LISTENS for. Pinning it ends auto-learning — the
+      // deterministic escape from a wrong learned recognition language.
+      const order = ['auto', 'en', 'ar'];
+      const next = order[(order.indexOf(prefs.get('speechLangMode') || 'auto') + 1) % order.length];
+      prefs.set('speechLangMode', next);
+      if (next === 'en' || next === 'ar') {
+        voice.speechLang = next;
+        prefs.set('speechLang', next);
+      }
+      conversation.addSystem(`🎙 ${t('palette.nav.speechLang', { mode: t(`speechLang.${next}`) })}`);
     }
     else if (id === 'motion') {
       prefs.set('motion', prefs.get('motion') === 'reduced' ? 'full' : 'reduced');
@@ -281,9 +297,13 @@ backend.on('plan.proposed', (ev) => {
   void activity.render();
 });
 backend.on('objective.finished', (ev) => {
-  const completed = ev.payload?.status === 'completed';
-  conversation.addSystem(completed ? `✅ ${t('chat.objectiveCompleted')}` : `❌ ${t('chat.objectiveFailed')}`);
-  announcer.say(completed ? t('announce.objectiveCompleted') : t('announce.executionFailed'));
+  const status = ev.payload?.status;
+  conversation.addSystem(
+    status === 'completed' ? `✅ ${t('chat.objectiveCompleted')}`
+    : status === 'cancelled' ? `⏹ ${t('chat.objectiveCancelled')}`
+    : `❌ ${t('chat.objectiveFailed')}`,
+  );
+  announcer.say(status === 'completed' ? t('announce.objectiveCompleted') : t('announce.executionFailed'));
   void cards.render();
 });
 backend.on('approval.requested', (ev) => {
