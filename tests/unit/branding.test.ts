@@ -16,6 +16,7 @@ const ALLOWED: Record<string, RegExp> = {
   'src/shared/seed.ts': /UPDATE orgs SET name = 'SIRA' WHERE id = \? AND name = 'Rabit AI Company'/,
   'scripts/install-sira.sh': /for old in rabit-api rabit-worker|migrating old \$old\.service/,
   'web/js/core/prefs.js': /rabit\.(lang|conversationId)|previous product/,
+  'README.md': /removes old `rabit-\*` systemd units|`RABIT_\*` variables, rename them/,
   'tests/unit/branding.test.ts': /.*/, // this file names the patterns it hunts
   'tests/unit/static-guards.test.ts': /rabit|jarvis/i, // ditto
   'tests/unit/i18n-parity.test.ts': /rabit|jarvis/i, // ditto
