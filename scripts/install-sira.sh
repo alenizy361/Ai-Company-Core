@@ -11,17 +11,32 @@
 #       catastrophic-action denylist protect you). Implies --services. Only
 #       use this on a machine with nothing sensitive on it. One manual step
 #       remains after: log out and back in so GNOME loads the extension.
+#   ./scripts/install-sira.sh --enable-browser-bridge
+#       everything --services does, PLUS turns on browser automation
+#       (Playwright driving your system Chrome, semantic CSS selectors —
+#       faster and more reliable than desktop_* coordinate clicking for
+#       anything reachable by URL). Implies --services.
+#   ./scripts/install-sira.sh --enable-atspi-bridge
+#       everything --services does, PLUS turns on native-Linux-app
+#       automation (AT-SPI accessible role/name — faster than coordinate
+#       clicking for GTK/Qt apps) and enables the GNOME accessibility
+#       toolkit setting it depends on. Implies --services.
+#   These three flags combine freely, e.g. --enable-desktop-bridge
+#   --enable-browser-bridge --enable-atspi-bridge turns everything on at once.
 #
 # What it does, in order:
 #   1. Checks Node.js >= 22.18 (needed for built-in SQLite + TS type-stripping)
 #   2. Checks the `claude` CLI login (your Max plan powers the agents;
 #      without it SIRA still runs, loudly labeled MOCK MODE)
 #   3. npm ci  ->  seeds the database (org, 13 agents, versioned prompts)
-#   4. Runs the full test suite (42 tests incl. the acceptance tests)
+#   4. Runs the full test suite (typecheck + unit + integration)
 #   5. Runs every agent's evaluation suite and activates agents that pass 100%
 #   6. Optionally installs systemd user services with restart policies
 #   7. With --enable-desktop-bridge: installs the GNOME extension and turns
 #      desktop control on (still needs one logout/login to take effect)
+#   8. With --enable-browser-bridge / --enable-atspi-bridge: turns on the
+#      browser/AT-SPI automation layers (both are dispatch pipelines inside
+#      the SAME sira-desktop-bridge daemon — no new service, no new port)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO_DIR="$(pwd)"
@@ -29,11 +44,15 @@ REPO_DIR="$(pwd)"
 WITH_SERVICES=false
 SKIP_TESTS=false
 ENABLE_DESKTOP_BRIDGE=false
+ENABLE_BROWSER_BRIDGE=false
+ENABLE_ATSPI_BRIDGE=false
 for arg in "$@"; do
   case "$arg" in
     --services) WITH_SERVICES=true ;;
     --skip-tests) SKIP_TESTS=true ;;
     --enable-desktop-bridge) ENABLE_DESKTOP_BRIDGE=true; WITH_SERVICES=true ;;
+    --enable-browser-bridge) ENABLE_BROWSER_BRIDGE=true; WITH_SERVICES=true ;;
+    --enable-atspi-bridge) ENABLE_ATSPI_BRIDGE=true; WITH_SERVICES=true ;;
     *) echo "unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
@@ -236,6 +255,29 @@ UNIT
     else
       warn "xdotool/scrot not found — the X11 fallback backend is unavailable (fine on GNOME/Wayland, the primary supported path); install with:  sudo apt install xdotool scrot"
     fi
+
+    # Browser + AT-SPI automation: report dependencies honestly, change
+    # nothing here — actually turning either on (--enable-browser-bridge /
+    # --enable-atspi-bridge) happens further below. Both are dispatch
+    # pipelines inside the SAME sira-desktop-bridge daemon/port — no new
+    # systemd unit, no new token.
+    say "Browser + AT-SPI automation: dependencies"
+    if command -v google-chrome >/dev/null 2>&1 || command -v google-chrome-stable >/dev/null 2>&1 || command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>&1; then
+      ok "system Chrome/Chromium found (browser automation drives it directly — no separate download)"
+    else
+      warn "no system Chrome/Chromium found — browser automation needs one:  sudo apt install -y google-chrome-stable  (or: sudo apt install -y chromium-browser)"
+    fi
+    if python3 -c "import gi; gi.require_version('Atspi', '2.0'); from gi.repository import Atspi" >/dev/null 2>&1; then
+      ok "AT-SPI GObject-Introspection bindings importable"
+    else
+      warn "AT-SPI bindings not importable — install with:  sudo apt install -y gir1.2-atspi-2.0 python3-gi"
+    fi
+    if [ "$(gsettings get org.gnome.desktop.interface toolkit-accessibility 2>/dev/null)" = "true" ]; then
+      ok "GNOME accessibility (toolkit-accessibility) already enabled"
+    else
+      warn "GNOME accessibility is off — AT-SPI can't see GTK/Qt app widgets until it's on (--enable-atspi-bridge does this for you, or by hand:  gsettings set org.gnome.desktop.interface toolkit-accessibility true)"
+    fi
+
     if [ "$ENABLE_DESKTOP_BRIDGE" = true ]; then
       say "Enabling desktop control (--enable-desktop-bridge)"
       warn "SIRA will have FULL screen/mouse/keyboard/app/command control with NO per-action confirmation."
@@ -255,6 +297,48 @@ UNIT
     else
       warn "desktop control stays OFF until you set \"enabled\": true in config/desktop-bridge.json (or re-run with --enable-desktop-bridge) — read gnome-extension/README.md first; only enable this on a machine with nothing sensitive on it"
       DESKTOP_BRIDGE_NOTE="installed but OFF — turn on with:  ./scripts/install-sira.sh --enable-desktop-bridge"
+    fi
+
+    if [ "$ENABLE_BROWSER_BRIDGE" = true ]; then
+      say "Enabling browser automation (--enable-browser-bridge)"
+      BROWSER_CONFIG="$REPO_DIR/config/browser-bridge.json"
+      "$NODE_BIN" -e "
+        const fs = require('node:fs');
+        const p = process.argv[1];
+        const cfg = JSON.parse(fs.readFileSync(p, 'utf8'));
+        cfg.enabled = true;
+        fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
+      " "$BROWSER_CONFIG"
+      ok "config/browser-bridge.json: enabled = true"
+      systemctl --user restart sira-api.service sira-desktop-bridge.service
+      ok "sira-api + sira-desktop-bridge restarted with browser automation enabled"
+      BROWSER_BRIDGE_NOTE="ON — verify:  curl -s http://127.0.0.1:4600/api/desktop-bridge/status | jq .browser"
+    else
+      BROWSER_BRIDGE_NOTE="installed but OFF — turn on with:  ./scripts/install-sira.sh --enable-browser-bridge"
+    fi
+
+    if [ "$ENABLE_ATSPI_BRIDGE" = true ]; then
+      say "Enabling AT-SPI automation (--enable-atspi-bridge)"
+      if command -v gsettings >/dev/null 2>&1; then
+        gsettings set org.gnome.desktop.interface toolkit-accessibility true
+        ok "GNOME accessibility (toolkit-accessibility) enabled"
+      else
+        warn "gsettings not found — enable GNOME accessibility manually (Settings > Accessibility), AT-SPI won't see app widgets otherwise"
+      fi
+      ATSPI_CONFIG="$REPO_DIR/config/atspi-bridge.json"
+      "$NODE_BIN" -e "
+        const fs = require('node:fs');
+        const p = process.argv[1];
+        const cfg = JSON.parse(fs.readFileSync(p, 'utf8'));
+        cfg.enabled = true;
+        fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
+      " "$ATSPI_CONFIG"
+      ok "config/atspi-bridge.json: enabled = true"
+      systemctl --user restart sira-api.service sira-desktop-bridge.service
+      ok "sira-api + sira-desktop-bridge restarted with AT-SPI automation enabled"
+      ATSPI_BRIDGE_NOTE="ON — verify:  curl -s http://127.0.0.1:4600/api/desktop-bridge/status | jq .atspi"
+    else
+      ATSPI_BRIDGE_NOTE="installed but OFF — turn on with:  ./scripts/install-sira.sh --enable-atspi-bridge"
     fi
 
     RUN_HINT="systemctl --user status sira-api sira-worker sira-desktop-bridge
@@ -277,6 +361,12 @@ echo "               then: systemctl --user restart sira-api sira-worker"
 echo "    Note:      the mic and speech APIs need localhost or HTTPS in the browser."
 if [ -n "${DESKTOP_BRIDGE_NOTE:-}" ]; then
   echo "    Desktop control: $DESKTOP_BRIDGE_NOTE"
+fi
+if [ -n "${BROWSER_BRIDGE_NOTE:-}" ]; then
+  echo "    Browser automation: $BROWSER_BRIDGE_NOTE"
+fi
+if [ -n "${ATSPI_BRIDGE_NOTE:-}" ]; then
+  echo "    AT-SPI automation: $ATSPI_BRIDGE_NOTE"
 fi
 if [ -z "${FISH_AUDIO_API_KEY:-}" ] && ! command -v espeak-ng >/dev/null 2>&1 && ! command -v espeak >/dev/null 2>&1; then
   warn "no server voice installed — Linux browsers often have ZERO speech voices,"
