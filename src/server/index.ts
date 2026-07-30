@@ -154,17 +154,21 @@ const server = createServer(async (req, res) => {
   serveStatic(paths.webDir, req, res);
 });
 
-// Security boundary (Phase 2): loopback-only by default — an unauthenticated
-// API (the default when OWNER_TOKEN is unset) must never be reachable from
-// the network unless the owner explicitly opts in via SIRA_HOST. Node's
+// Security boundary: loopback-only by default — an unauthenticated API (the
+// default when OWNER_TOKEN is unset) must never be reachable from the
+// network unless the owner explicitly opts in via SIRA_HOST. Node's
 // server.listen(port) with no host binds every interface (0.0.0.0/::); that
-// silent default was the actual vulnerability, not the auth check itself.
+// silent default was the original vulnerability, not the auth check itself.
+// A non-loopback bind with no token is refused outright — the server must
+// never silently start unauthenticated on the network (a console warning
+// alone is easy to miss in a systemd journal no one is tailing).
 if (!LOOPBACK_HOSTS.has(cfg.host) && !ownerToken) {
-  console.warn(
-    `[sira] WARNING: binding to ${cfg.host} (not loopback) with OWNER_TOKEN unset — ` +
-    `the entire API is reachable on your network with NO authentication. ` +
+  console.error(
+    `[sira] REFUSING TO START: binding to ${cfg.host} (not loopback) with OWNER_TOKEN unset — ` +
+    `the entire API would be reachable on your network with NO authentication. ` +
     `Set OWNER_TOKEN in your environment before exposing SIRA beyond localhost.`,
   );
+  process.exit(1);
 }
 server.listen(cfg.port, cfg.host, () => {
   console.log(`[sira] api listening on http://${cfg.host}:${cfg.port} (db: ${paths.dbPath})`);

@@ -38,6 +38,7 @@ function fakeSession(overrides: FakeOverrides = {}): SiraSession {
   s.input = overrides.input ?? { push: () => {}, end: () => {} };
   s.activeTurn = overrides.activeTurn ?? null;
   s.turnChain = Promise.resolve();
+  s.pendingTurns = 0;
   s.failed = overrides.failed ?? null;
   s.lastMessageAtMs = overrides.lastMessageAtMs ?? Date.now();
   session.delegationEnabled = overrides.delegationEnabled ?? true;
@@ -119,6 +120,41 @@ test('SiraSession.send(): overlapping sends never let a later call overwrite an 
   assert.deepEqual(pushed.map((p) => p.text), ['turn A', 'turn B'], 'turns are still strictly serialized');
   assert.equal(pushed[0].delegationEnabledAtPush, true, "turn A's own canUseTool-equivalent check must see turn A's own flag, not turn B's");
   assert.equal(pushed[1].delegationEnabledAtPush, false);
+});
+
+test('SiraSession.send(): the pending-turn queue is bounded — an overflow send is rejected immediately, not queued forever', async () => {
+  const session = fakeSession({ delegationEnabled: true });
+  (session as unknown as { input: { push: (m: unknown) => void; end: () => void } }).input = {
+    push: () => {
+      // Complete instantly so no queued turn is left hanging on the real
+      // 15-minute wedge watchdog once the test starts awaiting anything.
+      (session as unknown as { activeTurn: unknown }).activeTurn = null;
+    },
+    end: () => {},
+  };
+
+  const MAX = 20; // must match SiraSession.MAX_PENDING_TURNS
+  const streams = [];
+  // Filled in one synchronous burst — pendingTurns increments happen
+  // inline in send(), so by the time this loop ends it is guaranteed to be
+  // exactly MAX, regardless of how fast queued turns later complete.
+  for (let i = 0; i < MAX + 1; i++) streams.push(session.send(`turn ${i}`));
+
+  // The (MAX+1)th call must be rejected synchronously with an error turn —
+  // it must never be silently appended to an unbounded queue.
+  const overflow = streams[MAX];
+  const first = await overflow.next();
+  assert.equal(first.value?.kind, 'error');
+  assert.match((first.value as { message: string }).message, /too many turns already queued/);
+  const second = await overflow.next();
+  assert.equal(second.done, true, 'the rejected turn stream finishes immediately, nothing more to yield');
+
+  // Let the MAX real (accepted) turns fully drain before returning — each
+  // resolves via the file's 100ms watchdog-poll granularity, so this takes
+  // a couple of seconds. Leaving them running past this test's return would
+  // corrupt node:test's cancellation tracking for later tests in this file.
+  await waitUntil(() => (session as unknown as { pendingTurns: number }).pendingTurns === 0, 6000);
+  await new Promise((resolve) => setTimeout(resolve, 150));
 });
 
 test('SiraSession.send(): omitting delegationEnabled leaves the session\'s current value untouched (internal callers with no owner toggle)', async () => {

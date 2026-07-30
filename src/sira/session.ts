@@ -126,6 +126,11 @@ export class SiraSession {
   private readonly q: Query;
   private activeTurn: TurnStream | null = null;
   private turnChain: Promise<unknown> = Promise.resolve();
+  /** Turns queued behind turnChain but not yet active — bounded so a client
+   *  that fires many overlapping sends for one conversation can't grow this
+   *  session's memory/backlog without limit (Section 12: bounded pending-turn queue). */
+  private pendingTurns = 0;
+  private static readonly MAX_PENDING_TURNS = 20;
   private failed: string | null = null;
   private lastMessageAtMs = Date.now();
   /** Owner toggle: when false, the Task tool is DENIED at runtime — SIRA answers itself. */
@@ -359,7 +364,14 @@ export class SiraSession {
    */
   send(text: string, delegationEnabled?: boolean): AsyncGenerator<TurnEvent> {
     const turn = new TurnStream();
+    if (this.pendingTurns >= SiraSession.MAX_PENDING_TURNS) {
+      turn.emit({ kind: 'error', message: `too many turns already queued for this conversation (max ${SiraSession.MAX_PENDING_TURNS}) — wait for one to finish before sending another` });
+      turn.finish();
+      return turn.events();
+    }
+    this.pendingTurns++;
     this.turnChain = this.turnChain.then(async () => {
+      this.pendingTurns--;
       if (this.failed) {
         turn.emit({ kind: 'error', message: `session failed: ${this.failed}` });
         turn.finish();
