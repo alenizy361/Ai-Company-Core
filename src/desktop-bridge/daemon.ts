@@ -19,6 +19,14 @@ import { dispatchDesktopAction } from './dispatch.ts';
 import { loadDesktopPolicy } from './policy.ts';
 import { isKilled, kill, resume } from './kill-switch.ts';
 import { resolveBackend, type ResolvedBackend } from './backend.ts';
+import { dispatchBrowserAction } from './browser/dispatch.ts';
+import { loadBrowserPolicy } from './browser/policy.ts';
+import { resolveBrowserBackend } from './browser/resolve.ts';
+import type { ResolvedBrowserBackend } from './browser/backend.ts';
+import { dispatchAtspiAction } from './atspi/dispatch.ts';
+import { loadAtspiPolicy } from './atspi/policy.ts';
+import { resolveAtspiBackend } from './atspi/resolve.ts';
+import type { ResolvedAtspiBackend } from './atspi/backend.ts';
 
 export interface DesktopDaemonDeps {
   db: Db;
@@ -34,27 +42,29 @@ export function startDesktopDaemon(deps: DesktopDaemonDeps): { close: () => void
     return authHeader === `Bearer ${token}`;
   };
 
-  let resolved: ResolvedBackend | null = null;
-  const getBackend = async (): Promise<ResolvedBackend> => {
-    // Re-probed on every call rather than cached once at boot — the owner
-    // may install/enable the GNOME extension, or install xdotool/scrot,
-    // AFTER this daemon started, and /health must reflect reality, not the
-    // state from process start.
-    resolved = await resolveBackend();
-    return resolved;
-  };
+  // Re-probed on every call rather than cached once at boot, for all three
+  // backends — the owner may install/enable the GNOME extension, install
+  // Playwright, or install AT-SPI packages AFTER this daemon started, and
+  // /health must reflect reality, not the state from process start.
+  const getBackend = async (): Promise<ResolvedBackend> => resolveBackend();
+  const getBrowserBackend = async (): Promise<ResolvedBrowserBackend> => resolveBrowserBackend();
+  const getAtspiBackend = async (): Promise<ResolvedAtspiBackend> => resolveAtspiBackend();
 
   const router = new Router();
 
   router.get('/health', async ({ res }) => {
-    const backend = await getBackend();
+    const [backend, browser, atspi] = await Promise.all([getBackend(), getBrowserBackend(), getAtspiBackend()]);
     const policy = loadDesktopPolicy();
+    const browserPolicy = loadBrowserPolicy();
+    const atspiPolicy = loadAtspiPolicy();
     json(res, 200, {
       ok: backend.ready,
       enabled: policy.enabled,
       armed: !isKilled(deps.paths),
       backend: { kind: backend.kind, ready: backend.ready, reason: backend.reason },
       dependencies: backend.dependencies,
+      browser: { enabled: browserPolicy.enabled, kind: browser.kind, ready: browser.ready, reason: browser.reason, dependencies: browser.dependencies },
+      atspi: { enabled: atspiPolicy.enabled, kind: atspi.kind, ready: atspi.ready, reason: atspi.reason, dependencies: atspi.dependencies },
     });
   });
 
@@ -66,6 +76,34 @@ export function startDesktopDaemon(deps: DesktopDaemonDeps): { close: () => void
     }
     const { backend } = await getBackend();
     const result = await dispatchDesktopAction(
+      { db: deps.db, cfg: deps.cfg, paths: deps.paths, orgId: deps.orgId, conversationId: b?.conversationId ?? null, agentKey: b?.agentKey ?? 'sira', artifactsDir: deps.paths.artifactsDir },
+      policy, backend, params.name, b?.args ?? {},
+    );
+    json(res, 200, result);
+  });
+
+  router.post('/browser/:name', async ({ res, params, body }) => {
+    const b = body as { args?: Record<string, unknown>; agentKey?: string; conversationId?: string | null } | undefined;
+    const policy = loadBrowserPolicy();
+    if (!policy.enabled) {
+      return errorJson(res, 403, 'DISABLED', 'the browser bridge is disabled — set "enabled": true in config/browser-bridge.json');
+    }
+    const { backend } = await getBrowserBackend();
+    const result = await dispatchBrowserAction(
+      { db: deps.db, cfg: deps.cfg, paths: deps.paths, orgId: deps.orgId, conversationId: b?.conversationId ?? null, agentKey: b?.agentKey ?? 'sira', artifactsDir: deps.paths.artifactsDir },
+      policy, backend, params.name, b?.args ?? {},
+    );
+    json(res, 200, result);
+  });
+
+  router.post('/atspi/:name', async ({ res, params, body }) => {
+    const b = body as { args?: Record<string, unknown>; agentKey?: string; conversationId?: string | null } | undefined;
+    const policy = loadAtspiPolicy();
+    if (!policy.enabled) {
+      return errorJson(res, 403, 'DISABLED', 'the AT-SPI bridge is disabled — set "enabled": true in config/atspi-bridge.json');
+    }
+    const { backend } = await getAtspiBackend();
+    const result = await dispatchAtspiAction(
       { db: deps.db, cfg: deps.cfg, paths: deps.paths, orgId: deps.orgId, conversationId: b?.conversationId ?? null, agentKey: b?.agentKey ?? 'sira', artifactsDir: deps.paths.artifactsDir },
       policy, backend, params.name, b?.args ?? {},
     );

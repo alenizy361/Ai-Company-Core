@@ -69,10 +69,6 @@ export interface AtspiActionCtx {
   turnIndex?: number;
 }
 
-// SystemConfig wiring for the action timeout comes in a later task (same
-// note as the browser bridge's dispatch.ts) — hardcoded here for now.
-const ATSPI_ACTION_TIMEOUT_MS = 10000;
-
 // list_apps/find are read-only lookups and get_text failing means the
 // widget itself couldn't be read — a whole-screen shot adds nothing for
 // those. click/set_text/wait_for fail when the UI didn't do what was
@@ -130,9 +126,9 @@ export async function dispatchAtspiAction(
   let result: ToolResult;
   try {
     result = await Promise.race([
-      runAction(backend, actionName as AtspiActionName, args),
+      runAction(ctx, backend, actionName as AtspiActionName, args),
       new Promise<ToolResult>((_, reject) =>
-        setTimeout(() => reject(new Error(`atspi action timed out after ${ATSPI_ACTION_TIMEOUT_MS}ms`)), ATSPI_ACTION_TIMEOUT_MS).unref(),
+        setTimeout(() => reject(new Error(`atspi action timed out after ${ctx.cfg.atspiActionTimeoutMs}ms`)), ctx.cfg.atspiActionTimeoutMs).unref(),
       ),
     ]);
   } catch (err) {
@@ -175,7 +171,7 @@ async function attachFailureScreenshot(ctx: AtspiActionCtx, result: ToolResult):
   }
 }
 
-async function runAction(backend: AtspiBackend, actionName: AtspiActionName, args: Record<string, unknown>): Promise<ToolResult> {
+async function runAction(ctx: AtspiActionCtx, backend: AtspiBackend, actionName: AtspiActionName, args: Record<string, unknown>): Promise<ToolResult> {
   switch (actionName) {
     case 'list_apps':
       return { ok: true, data: { apps: await backend.listApps() } };
@@ -201,7 +197,7 @@ async function runAction(backend: AtspiBackend, actionName: AtspiActionName, arg
     case 'wait_for': {
       const found = await backend.waitFor(
         args.app ? String(args.app) : undefined, args.role ? String(args.role) : undefined, String(args.name_pattern),
-        args.timeout_ms ? Number(args.timeout_ms) : ATSPI_ACTION_TIMEOUT_MS,
+        args.timeout_ms ? Number(args.timeout_ms) : ctx.cfg.atspiActionTimeoutMs,
       );
       return { ok: true, data: { found } };
     }

@@ -96,11 +96,6 @@ export interface BrowserActionCtx {
   turnIndex?: number;
 }
 
-// Wall-clock cap on a single browser action before it's treated as failed.
-// NOT yet on SystemConfig (a later task adds browserActionTimeoutMs there,
-// mirroring desktopActionTimeoutMs) — a local constant for now.
-const BROWSER_ACTION_TIMEOUT_MS = 20000;
-
 // Actions where a failure screenshot is meaningful (the page state at the
 // moment of failure helps diagnose it) — list_tabs/get_text/extract/new_tab/
 // close_tab/switch_tab don't render page content a screenshot would explain.
@@ -164,7 +159,7 @@ export async function dispatchBrowserAction(
     result = await Promise.race([
       runAction(backend, actionName as BrowserActionName, args),
       new Promise<ToolResult>((_, reject) =>
-        setTimeout(() => reject(new Error(`browser action timed out after ${BROWSER_ACTION_TIMEOUT_MS}ms`)), BROWSER_ACTION_TIMEOUT_MS).unref(),
+        setTimeout(() => reject(new Error(`browser action timed out after ${ctx.cfg.browserActionTimeoutMs}ms`)), ctx.cfg.browserActionTimeoutMs).unref(),
       ),
     ]);
   } catch (err) {

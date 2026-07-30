@@ -47,6 +47,12 @@ export interface SystemConfig {
   /** Wall-clock cap on a single desktop action (screenshot/click/type/etc.)
    *  before it's treated as failed. */
   desktopActionTimeoutMs: number;
+  /** Wall-clock cap on a single browser action (navigate/click/fill/etc.)
+   *  before it's treated as failed — src/desktop-bridge/browser/. */
+  browserActionTimeoutMs: number;
+  /** Wall-clock cap on a single AT-SPI action (click/set_text/wait_for/etc.)
+   *  before it's treated as failed — src/desktop-bridge/atspi/. */
+  atspiActionTimeoutMs: number;
 }
 
 export interface Paths {
@@ -83,6 +89,8 @@ export function loadSystemConfig(): SystemConfig {
     ['SIRA_MAX_SESSIONS', 'maxSessions'],
     ['SIRA_DESKTOP_BRIDGE_PORT', 'desktopBridgePort'],
     ['SIRA_DESKTOP_ACTION_TIMEOUT_MS', 'desktopActionTimeoutMs'],
+    ['SIRA_BROWSER_ACTION_TIMEOUT_MS', 'browserActionTimeoutMs'],
+    ['SIRA_ATSPI_ACTION_TIMEOUT_MS', 'atspiActionTimeoutMs'],
   ] as const) {
     if (process.env[env]) (cfg as unknown as Record<string, number>)[key] = Number(process.env[env]);
   }

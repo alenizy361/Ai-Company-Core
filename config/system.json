@@ -20,6 +20,8 @@
   "maxSessions": 50,
   "desktopBridgePort": 4601,
   "desktopActionTimeoutMs": 15000,
+  "browserActionTimeoutMs": 20000,
+  "atspiActionTimeoutMs": 10000,
   "modelTiers": {
     "fast": "claude-haiku-4-5-20251001",
     "balanced": "claude-sonnet-5",
