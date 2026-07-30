@@ -24,7 +24,8 @@ import type { SystemConfig } from '../shared/config.ts';
 import { ulid } from '../shared/ids.ts';
 import { emitEvent } from '../shared/events.ts';
 import { notify } from '../shared/notify.ts';
-import type { SiraManager } from './session.ts';
+import type { SiraManager, SiraSession } from './session.ts';
+import type { TurnEvent } from './router.ts';
 
 /** A 'generating' claim older than this is assumed to be from a crashed or
  *  restarted API process, not genuinely still in flight, and is reclaimed. */
@@ -32,6 +33,23 @@ const STALE_GENERATING_MS = 10 * 60_000;
 /** How many pending objectives one sweep tick will synthesize — bounded so a
  *  burst of completions cannot monopolize the SDK/parent session queue. */
 const SWEEP_BATCH = 5;
+/** Retryable failures (transient SDK/model issues) get this many automatic
+ *  attempts, with exponential backoff, before becoming a permanent failure
+ *  that needs an owner-initiated manual retry. */
+const MAX_AUTO_ATTEMPTS = 5;
+const BASE_BACKOFF_MS = 30_000;
+const MAX_BACKOFF_MS = 8 * 60_000;
+
+function backoffMs(attempt: number): number {
+  return Math.min(BASE_BACKOFF_MS * 2 ** Math.max(0, attempt - 1), MAX_BACKOFF_MS);
+}
+
+/**
+ * A failure that retrying will never fix (corrupted/missing data, a
+ * structurally invalid objective). Thrown from packet-building, never from
+ * the SDK turn itself — those are always treated as retryable.
+ */
+class PermanentSynthesisError extends Error {}
 
 export interface CompletionPacketTask {
   agent: string;
@@ -61,7 +79,9 @@ export function buildCompletionPacket(db: Db, objectiveId: string): CompletionPa
   const objective = db.get<{ title: string; status: string }>(
     'SELECT title, status FROM objectives WHERE id = ?', objectiveId,
   );
-  if (!objective) throw new Error(`objective ${objectiveId} not found`);
+  // A missing/corrupted objective row will never resolve itself — retrying
+  // synthesis cannot fix data that isn't there.
+  if (!objective) throw new PermanentSynthesisError(`objective ${objectiveId} not found`);
 
   const tasks = db.all<{ id: string; agent_key: string; title: string; status: string; blocker: string | null }>(
     'SELECT id, agent_key, title, status, blocker FROM tasks WHERE objective_id = ? ORDER BY created_at', objectiveId,
@@ -154,6 +174,70 @@ export function buildInternalCompletionMessage(packet: CompletionPacket): string
   ].join('\n');
 }
 
+/** Drains one SDK turn to its final text, or throws — an error mid-turn or
+ *  a turn that ends with no final synthesis are both real failures here. */
+async function drainTurn(session: SiraSession, text: string): Promise<string> {
+  let finalText = '';
+  let sawFinal = false;
+  for await (const event of session.send(text) as AsyncGenerator<TurnEvent>) {
+    if (event.kind === 'final') { finalText = event.text; sawFinal = true; }
+    else if (event.kind === 'error') throw new Error(event.message);
+  }
+  if (!sawFinal || !finalText.trim()) throw new Error('SIRA produced no final synthesis for this objective');
+  return finalText;
+}
+
+/** A short, trusted recap of the conversation so far — used ONLY when the
+ *  original SDK session could not be resumed and a fresh one has no memory
+ *  of anything. Reconstructed from persisted messages, never invented. */
+function buildRecoveredContext(db: Db, conversationId: string): string {
+  const rows = db.all<{ role: string; content: string }>(
+    `SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user', 'assistant')
+     ORDER BY created_at DESC LIMIT 10`,
+    conversationId,
+  ).reverse();
+  if (rows.length === 0) return '[RECOVERED SESSION — the original session could not be resumed, and no prior conversation history exists to recap.]';
+  const recap = rows.map((r) => `${r.role === 'user' ? 'Owner' : 'SIRA'}: ${r.content.slice(0, 300)}`).join('\n');
+  return [
+    '[RECOVERED SESSION — the original SDK session could not be resumed (it may have expired). This is a concise recap of the conversation so far, reconstructed from persisted history — trusted context, not something the owner just said:]',
+    recap,
+  ].join('\n');
+}
+
+/**
+ * Resume the parent session and run the internal completion turn.
+ *
+ * Only escalate to a fresh session when the session itself is actually dead
+ * (SiraSession.isFailed — resume failed, the underlying CLI process
+ * crashed). A one-off turn-level error on an otherwise-healthy session (a
+ * transient model/network blip) must NOT throw away real conversation
+ * memory for no reason — that error just propagates to the normal
+ * retry-with-backoff path in synthesizeObjectiveCompletion, which reuses
+ * the SAME session next time via sira.getOrCreate().
+ */
+async function runCompletionTurn(
+  db: Db, cfg: SystemConfig, sira: SiraManager, objectiveId: string, conversationId: string, internalMessage: string,
+): Promise<string> {
+  const session = sira.getOrCreate(conversationId, null);
+  try {
+    return await drainTurn(session, internalMessage);
+  } catch (primaryErr) {
+    if (!session.isFailed) throw primaryErr;
+    const recap = buildRecoveredContext(db, conversationId);
+    const fresh = sira.recreate(conversationId, null);
+    const finalText = await drainTurn(fresh, `${recap}\n\n${internalMessage}`).catch(() => {
+      // The fallback ALSO failed — surface the original error, it's usually
+      // the more informative one (the fallback's is often just a repeat).
+      throw primaryErr;
+    });
+    emitEvent(db, {
+      type: 'sira.session.fallback_recovered', orgId: cfg.orgId,
+      payload: { objectiveId, conversationId, reason: primaryErr instanceof Error ? primaryErr.message : String(primaryErr) },
+    });
+    return finalText;
+  }
+}
+
 /**
  * Atomically claim ONE pending objective and run its synthesis. Returns
  * false without doing anything if the claim was lost (already
@@ -164,14 +248,14 @@ async function synthesizeObjectiveCompletion(db: Db, cfg: SystemConfig, sira: Si
   const now = Date.now();
   const claim = db.run(
     `UPDATE objectives SET completion_summary_status = 'generating', completion_summary_started_at = ?,
-       completion_summary_attempts = completion_summary_attempts + 1
+       completion_summary_attempts = completion_summary_attempts + 1, completion_summary_next_retry_at = NULL
      WHERE id = ? AND completion_summary_status = 'pending'`,
     now, objectiveId,
   );
   if (Number(claim.changes) === 0) return false;
 
-  const objective = db.get<{ conversation_id: string | null; title: string }>(
-    'SELECT conversation_id, title FROM objectives WHERE id = ?', objectiveId,
+  const objective = db.get<{ conversation_id: string | null; title: string; completion_summary_attempts: number }>(
+    'SELECT conversation_id, title, completion_summary_attempts FROM objectives WHERE id = ?', objectiveId,
   );
   // Guarded by the WHERE conversation_id IS NOT NULL gate in the sweep query,
   // but stay honest even if called directly with a bad id.
@@ -182,16 +266,8 @@ async function synthesizeObjectiveCompletion(db: Db, cfg: SystemConfig, sira: Si
 
   try {
     const packet = buildCompletionPacket(db, objectiveId);
-    const session = sira.getOrCreate(objective.conversation_id, null);
     const internalMessage = buildInternalCompletionMessage(packet);
-
-    let finalText = '';
-    let sawFinal = false;
-    for await (const event of session.send(internalMessage)) {
-      if (event.kind === 'final') { finalText = event.text; sawFinal = true; }
-      else if (event.kind === 'error') throw new Error(event.message);
-    }
-    if (!sawFinal || !finalText.trim()) throw new Error('SIRA produced no final synthesis for this objective');
+    const finalText = await runCompletionTurn(db, cfg, sira, objectiveId, objective.conversation_id, internalMessage);
 
     const assistantMessageId = ulid('msg');
     const finishedAt = Date.now();
@@ -204,7 +280,7 @@ async function synthesizeObjectiveCompletion(db: Db, cfg: SystemConfig, sira: Si
       db.run('UPDATE conversations SET updated_at = ? WHERE id = ?', finishedAt, objective.conversation_id);
       db.run(
         `UPDATE objectives SET completion_summary_status = 'completed', completion_summary_message_id = ?,
-           summarized_at = ?, completion_summary_error = NULL WHERE id = ?`,
+           summarized_at = ?, completion_summary_error = NULL, completion_summary_next_retry_at = NULL WHERE id = ?`,
         assistantMessageId, finishedAt, objectiveId,
       );
       emitEvent(db, {
@@ -218,16 +294,28 @@ async function synthesizeObjectiveCompletion(db: Db, cfg: SystemConfig, sira: Si
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    db.run(
-      `UPDATE objectives SET completion_summary_status = 'failed', completion_summary_error = ? WHERE id = ?`,
-      message.slice(0, 1000), objectiveId,
-    );
-    notify(db, cfg.orgId, {
-      kind: 'background_completion_failed', priority: 'high',
-      title: `SIRA could not summarize a finished objective: ${objective.title}`,
-      body: message.slice(0, 400),
-      payload: { objectiveId, conversationId: objective.conversation_id },
-    });
+    const permanent = err instanceof PermanentSynthesisError || objective.completion_summary_attempts >= MAX_AUTO_ATTEMPTS;
+    if (permanent) {
+      db.run(
+        `UPDATE objectives SET completion_summary_status = 'failed', completion_summary_error = ?, completion_summary_next_retry_at = NULL WHERE id = ?`,
+        message.slice(0, 1000), objectiveId,
+      );
+      notify(db, cfg.orgId, {
+        kind: 'background_completion_failed', priority: 'high',
+        title: `SIRA could not summarize a finished objective: ${objective.title}`,
+        body: message.slice(0, 400),
+        payload: { objectiveId, conversationId: objective.conversation_id },
+      });
+    } else {
+      // Retryable: transient SDK/model failure. Go back to 'pending' with a
+      // backoff delay instead of failing permanently — and stay quiet, an
+      // owner notification for every transient blip would be noise.
+      db.run(
+        `UPDATE objectives SET completion_summary_status = 'pending', completion_summary_error = ?,
+           completion_summary_next_retry_at = ? WHERE id = ?`,
+        message.slice(0, 1000), Date.now() + backoffMs(objective.completion_summary_attempts), objectiveId,
+      );
+    }
     return true;
   }
 }
@@ -247,8 +335,9 @@ export async function runObjectiveCompletionSweep(db: Db, cfg: SystemConfig, sir
 
   const pending = db.all<{ id: string }>(
     `SELECT id FROM objectives WHERE completion_summary_status = 'pending' AND conversation_id IS NOT NULL
+       AND (completion_summary_next_retry_at IS NULL OR completion_summary_next_retry_at <= ?)
      ORDER BY completed_at LIMIT ?`,
-    SWEEP_BATCH,
+    Date.now(), SWEEP_BATCH,
   );
   for (const row of pending) {
     await synthesizeObjectiveCompletion(db, cfg, sira, row.id);
@@ -259,8 +348,8 @@ export async function runObjectiveCompletionSweep(db: Db, cfg: SystemConfig, sir
  *  re-running any of the already-completed agent work. */
 export function retryObjectiveSummary(db: Db, objectiveId: string): boolean {
   const result = db.run(
-    `UPDATE objectives SET completion_summary_status = 'pending', completion_summary_error = NULL
-     WHERE id = ? AND completion_summary_status = 'failed'`,
+    `UPDATE objectives SET completion_summary_status = 'pending', completion_summary_error = NULL,
+       completion_summary_next_retry_at = NULL WHERE id = ? AND completion_summary_status = 'failed'`,
     objectiveId,
   );
   return Number(result.changes) > 0;

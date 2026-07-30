@@ -174,6 +174,13 @@ export class SiraSession {
     return this.router.model;
   }
 
+  /** True once the underlying SDK query has permanently died (e.g. the CLI
+   *  subprocess crashed). Every send() on a failed session errors instantly
+   *  — callers must not keep reusing it; see SiraManager.getOrCreate. */
+  get isFailed(): boolean {
+    return this.failed !== null;
+  }
+
   private async pump(): Promise<void> {
     try {
       for await (const msg of this.q) {
@@ -331,7 +338,19 @@ export class SiraManager {
 
   getOrCreate(conversationId: string, replyLang: 'en' | 'ar' | null): SiraSession {
     const existing = this.sessions.get(conversationId);
-    if (existing) return existing;
+    if (existing) {
+      // A session that failed mid-process (e.g. the CLI subprocess crashed)
+      // previously stayed cached forever — every future turn for this
+      // conversation, live or background, would error instantly with no
+      // recovery short of restarting the whole API process. Heal
+      // transparently instead: close it and fall through to build a fresh
+      // one (still resuming, since the failure may have been transient —
+      // recreate() below is the stronger escalation for a resume that is
+      // itself the problem).
+      if (!existing.isFailed) return existing;
+      existing.close();
+      this.sessions.delete(conversationId);
+    }
     const stored = this.db.get<{ sdk_session_id: string | null }>(
       'SELECT sdk_session_id FROM sdk_sessions WHERE conversation_id = ?', conversationId,
     );
@@ -341,6 +360,20 @@ export class SiraManager {
     });
     this.sessions.set(conversationId, session);
     return session;
+  }
+
+  /**
+   * Force a session with NO resume — used when resuming ITSELF is the
+   * problem (a dead/expired SDK session id would just fail again). Clears
+   * the persisted id too, so the owner's own next live turn doesn't hit the
+   * same dead resume either.
+   */
+  recreate(conversationId: string, replyLang: 'en' | 'ar' | null): SiraSession {
+    const existing = this.sessions.get(conversationId);
+    existing?.close();
+    this.sessions.delete(conversationId);
+    this.db.run(`UPDATE sdk_sessions SET sdk_session_id = NULL WHERE conversation_id = ?`, conversationId);
+    return this.getOrCreate(conversationId, replyLang);
   }
 
   get(conversationId: string): SiraSession | undefined {
