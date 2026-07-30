@@ -121,7 +121,9 @@ if [ "$WITH_SERVICES" = true ]; then
       mkdir -p "$(dirname "$ENV_FILE")"
       cat > "$ENV_FILE" <<'ENVT'
 # SIRA provider keys — edit, then: systemctl --user restart sira-api sira-worker
-# FISH_API_KEY=                  # premium voice (falls back to espeak-ng without it)
+# CHATTERBOX_URL=http://127.0.0.1:8765  # local persistent TTS (tried FIRST — zero cost, one steady voice)
+# CHATTERBOX_VOICE=default              # voice name your Chatterbox service was prepared with
+# FISH_API_KEY=                  # premium voice (falls back to Chatterbox/espeak-ng without it)
 # FISH_AUDIO_API_KEY=            # legacy name, still accepted
 # FISH_AUDIO_MODEL=s2.1-pro-free # default; set a paid model if you have API credit
 # DEEPGRAM_API_KEY=              # premium speech recognition

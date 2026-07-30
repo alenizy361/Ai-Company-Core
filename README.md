@@ -150,7 +150,7 @@ a provider interface; configuring keys switches the primary path
 | Layer | Fallback (works now) | Primary when configured |
 |---|---|---|
 | STT | Web Speech (browser) | Deepgram — `DEEPGRAM_API_KEY` |
-| TTS | speechSynthesis | Fish Audio — `FISH_API_KEY` (or legacy `FISH_AUDIO_API_KEY`) |
+| TTS | speechSynthesis | Chatterbox (local, `CHATTERBOX_URL`) → Fish Audio (`FISH_API_KEY`) → espeak-ng, tried in that order, **sticky per reply** so one answer never switches voices mid-sentence |
 | Wake word | none → push-to-talk | Porcupine — `PICOVOICE_ACCESS_KEY` |
 | Transport | in-page capture | LiveKit — `LIVEKIT_URL/API_KEY/API_SECRET` |
 

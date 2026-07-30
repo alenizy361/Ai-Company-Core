@@ -159,6 +159,71 @@ test('keyed Fish Audio failing upstream (e.g. no credit) falls back to the local
   assert.equal(bytes.subarray(0, 4).toString(), 'RIFF');
 });
 
+test('Chatterbox (local persistent TTS) is tried first when CHATTERBOX_URL is configured', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const captured: string[] = [];
+  const router = new Router();
+  registerVoiceProviderRoutes(router, env.db, {
+    env: { CHATTERBOX_URL: 'http://cb.local:8765', FISH_AUDIO_API_KEY: 'fish-key' },
+    fetchImpl: async (url) => {
+      captured.push(String(url));
+      if (String(url).includes('cb.local')) {
+        return new Response(Buffer.from('RIFF....WAVEfake'), { status: 200, headers: { 'content-type': 'audio/wav' } });
+      }
+      return new Response(new Blob([Buffer.from('FAKE_MP3')]), { status: 200, headers: { 'content-type': 'audio/mpeg' } });
+    },
+  });
+  const srv = await startServer(router);
+  t.after(srv.close);
+  const session = createVoiceSession(env.db, 'test', 900);
+
+  const res = await fetch(`${srv.base}/api/voice/tts?session=${session.id}&token=${session.token}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'hello' }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('x-sira-tts-provider'), 'chatterbox');
+  assert.ok(captured[0].includes('cb.local'), 'chatterbox is tried before fish audio');
+  assert.ok(!captured.some((u) => u.includes('fish.audio')), 'fish audio is never called when chatterbox answers');
+});
+
+test('sticky provider: one reply never flips voices mid-sentence — a mid-turn failure switches once and stays switched', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  let cbCalls = 0;
+  const router = new Router();
+  registerVoiceProviderRoutes(router, env.db, {
+    env: { CHATTERBOX_URL: 'http://cb.local:8765', FISH_AUDIO_API_KEY: 'fish-key' },
+    fetchImpl: async (url) => {
+      if (String(url).includes('cb.local')) {
+        cbCalls += 1;
+        // First sentence: Chatterbox is up. From then on it is unreachable —
+        // a real "service died mid-reply" scenario.
+        if (cbCalls === 1) return new Response(Buffer.from('RIFF....WAVEfake'), { status: 200, headers: { 'content-type': 'audio/wav' } });
+        throw new Error('ECONNREFUSED');
+      }
+      return new Response(new Blob([Buffer.from('FAKE_MP3')]), { status: 200, headers: { 'content-type': 'audio/mpeg' } });
+    },
+  });
+  const srv = await startServer(router);
+  t.after(srv.close);
+  const session = createVoiceSession(env.db, 'test', 900);
+  const auth = `session=${session.id}&token=${session.token}`;
+
+  const say = (text: string) => fetch(`${srv.base}/api/voice/tts?${auth}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+  });
+
+  const first = await say('sentence one.');
+  assert.equal(first.headers.get('x-sira-tts-provider'), 'chatterbox');
+
+  const second = await say('sentence two, same reply.');
+  assert.equal(second.headers.get('x-sira-tts-provider'), 'fish-audio', 'switches once when chatterbox dies mid-reply');
+
+  const third = await say('sentence three, same reply.');
+  assert.equal(third.headers.get('x-sira-tts-provider'), 'fish-audio', 'stays on fish-audio — never re-probes chatterbox within the same reply');
+});
+
 test('mintLivekitToken is deterministic and time-bounded', () => {
   const token = mintLivekitToken('k', 's', 'me', 'room', 60, 1000000);
   const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) as { exp: number; nbf: number };

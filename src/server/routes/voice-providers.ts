@@ -29,6 +29,35 @@ export interface VoiceProviderDeps {
 
 let espeakBinCache: string | null | undefined;
 
+/**
+ * Sticky TTS provider per voice session. A single spoken reply is synthesized
+ * sentence-by-sentence (progressive TTS); without this, one sentence landing
+ * on Chatterbox/Fish and the next falling back to espeak (or a per-sentence
+ * language re-detection) made ONE reply sound like several different voices
+ * talking in turn — the "voice changed" / "three replies in a row" symptom.
+ * The first sentence of a turn picks a provider; every sentence within
+ * STICKY_MS of the last one reuses it. A provider is allowed to switch
+ * (once, forward only — never oscillates back) only when it actually fails;
+ * silence never happens because the chain always ends at espeak if installed.
+ */
+const STICKY_MS = 45_000;
+type TtsProvider = 'chatterbox' | 'fish-audio' | 'espeak';
+const stickyProvider = new Map<string, { provider: TtsProvider; at: number }>();
+
+function getSticky(sessionId: string): TtsProvider | null {
+  const entry = stickyProvider.get(sessionId);
+  if (!entry) return null;
+  if (Date.now() - entry.at > STICKY_MS) {
+    stickyProvider.delete(sessionId);
+    return null;
+  }
+  return entry.provider;
+}
+
+function setSticky(sessionId: string, provider: TtsProvider): void {
+  stickyProvider.set(sessionId, { provider, at: Date.now() });
+}
+
 /** Local zero-key TTS: espeak-ng (or espeak) if installed on this machine. */
 export function espeakBin(): string | null {
   if (espeakBinCache !== undefined) return espeakBinCache;
@@ -156,6 +185,51 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
     child.stdin.end();
   };
 
+  // Chatterbox Multilingual V3: an optional persistent local TTS service
+  // (see docs — one model instance, one custom voice, CPU-only) reached at
+  // CHATTERBOX_URL (default http://127.0.0.1:8765). When it answers, it is
+  // the highest-quality and zero-cost option, so it is tried first.
+  const chatterboxUrl = env.CHATTERBOX_URL ?? '';
+  const chatterboxEnabled = Boolean(chatterboxUrl) && env.CHATTERBOX_ENABLED !== 'off';
+  const synthChatterbox = async (
+    res: Parameters<typeof json>[0], text: string, lang: 'ar' | 'en', requestId: string,
+  ): Promise<boolean> => {
+    try {
+      const upstream = await fetchImpl(`${chatterboxUrl}/v1/audio/speech`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: 'chatterbox-multilingual-v3',
+          input: text.slice(0, 400),
+          voice: env.CHATTERBOX_VOICE ?? 'default',
+          language: lang,
+          response_format: 'wav',
+          request_id: requestId,
+        }),
+        // Chatterbox is CPU inference — generation can take a few seconds;
+        // this is still short enough not to stall the sentence queue badly,
+        // and a slow/dead service must fall through rather than hang.
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!upstream.ok || !upstream.body) return false;
+      res.writeHead(200, {
+        'content-type': 'audio/wav',
+        'cache-control': 'no-store',
+        'x-sira-tts-provider': 'chatterbox',
+      });
+      const reader = upstream.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+      res.end();
+      return true;
+    } catch {
+      return false; // service not running / unreachable — fall through
+    }
+  };
+
   router.post('/api/voice/tts', async ({ res, query, body }) => {
     if (!requireSession(query, res)) return;
     // FISH_API_KEY is the canonical name; FISH_AUDIO_API_KEY remains accepted
@@ -166,60 +240,74 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
     if (!text || typeof text !== 'string') return errorJson(res, 400, 'BAD_REQUEST', 'text is required');
     const lang: 'ar' | 'en' = b?.lang === 'ar' ? 'ar' : b?.lang === 'en' ? 'en' : dominantLang(text);
     const localOk = deps.localTts ?? espeakBin() !== null;
-    if (!key) {
-      if (!localOk) {
-        return errorJson(res, 503, 'PROVIDER_NOT_CONFIGURED',
-          'no server voice: set FISH_AUDIO_API_KEY, or install espeak-ng (sudo apt install espeak-ng); the client falls back to speechSynthesis');
-      }
-      return synthLocal(res, text, lang, false);
-    }
-    // Optional per-language Fish voices: FISH_AUDIO_VOICE_EN / _AR (reference
-    // ids), falling back to FISH_AUDIO_VOICE, else the account default.
-    const referenceId = (lang === 'ar' ? env.FISH_AUDIO_VOICE_AR : env.FISH_AUDIO_VOICE_EN) ?? env.FISH_AUDIO_VOICE;
-    try {
-      const upstream = await fetchImpl('https://api.fish.audio/v1/tts', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${key}`,
-          'Content-Type': 'application/json',
-          // s2.1-pro-free: Fish Audio's free API tier (through Aug 2026) —
-          // works with a keyed account holding zero API credit. Owners with
-          // paid credit can pick a paid model via FISH_AUDIO_MODEL.
-          model: env.FISH_AUDIO_MODEL ?? 's2.1-pro-free',
-        },
-        body: JSON.stringify({
-          text: text.slice(0, 2000), format: 'mp3', latency: 'balanced',
-          ...(referenceId ? { reference_id: referenceId } : {}),
-        }),
-      });
-      if (!upstream.ok || !upstream.body) {
-        const detail = `Fish Audio ${upstream.status}: ${(await upstream.text()).slice(0, 300)}`;
-        // A keyed-but-failing provider (e.g. out of API credit) must not
-        // silence the voice when a local one exists.
-        if (localOk) {
-          console.warn(`[sira] tts falling back to local voice — ${detail}`);
-          return synthLocal(res, text, lang, true);
+    const sessionId = query.get('session') ?? '';
+    const requestId = `${sessionId}-${Date.now()}`;
+
+    const doFish = async (): Promise<boolean> => {
+      if (!key) return false;
+      const referenceId = (lang === 'ar' ? env.FISH_AUDIO_VOICE_AR : env.FISH_AUDIO_VOICE_EN) ?? env.FISH_AUDIO_VOICE;
+      try {
+        const upstream = await fetchImpl('https://api.fish.audio/v1/tts', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${key}`,
+            'Content-Type': 'application/json',
+            // s2.1-pro-free: Fish Audio's free API tier (through Aug 2026) —
+            // works with a keyed account holding zero API credit. Owners with
+            // paid credit can pick a paid model via FISH_AUDIO_MODEL.
+            model: env.FISH_AUDIO_MODEL ?? 's2.1-pro-free',
+          },
+          body: JSON.stringify({
+            text: text.slice(0, 2000), format: 'mp3', latency: 'balanced',
+            ...(referenceId ? { reference_id: referenceId } : {}),
+          }),
+        });
+        if (!upstream.ok || !upstream.body) return false;
+        res.writeHead(200, {
+          'content-type': upstream.headers.get('content-type') ?? 'audio/mpeg',
+          'cache-control': 'no-store',
+          'x-sira-tts-provider': 'fish-audio',
+        });
+        const reader = upstream.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(Buffer.from(value));
         }
-        return errorJson(res, 502, 'PROVIDER_ERROR', detail);
+        res.end();
+        return true;
+      } catch {
+        return false;
       }
-      res.writeHead(200, {
-        'content-type': upstream.headers.get('content-type') ?? 'audio/mpeg',
-        'cache-control': 'no-store',
-        'x-sira-tts-provider': 'fish-audio',
-      });
-      const reader = upstream.body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(Buffer.from(value));
+    };
+
+    // Sticky selection: within one spoken reply, reuse whichever provider
+    // answered the previous sentence instead of re-probing the whole chain
+    // (re-probing is what made a single answer flip between voices).
+    const sticky = sessionId ? getSticky(sessionId) : null;
+    const order: TtsProvider[] = sticky
+      ? [sticky, ...(['chatterbox', 'fish-audio', 'espeak'] as TtsProvider[]).filter((p) => p !== sticky)]
+      : ['chatterbox', 'fish-audio', 'espeak'];
+
+    for (const provider of order) {
+      if (provider === 'chatterbox') {
+        if (!chatterboxEnabled) continue;
+        if (await synthChatterbox(res, text, lang, requestId)) {
+          if (sessionId) setSticky(sessionId, 'chatterbox');
+          return;
+        }
+      } else if (provider === 'fish-audio') {
+        if (await doFish()) {
+          if (sessionId) setSticky(sessionId, 'fish-audio');
+          return;
+        }
+      } else if (localOk) {
+        if (sessionId) setSticky(sessionId, 'espeak');
+        return synthLocal(res, text, lang, provider !== order[0]);
       }
-      res.end();
-    } catch (err) {
-      if (!res.headersSent) {
-        if (localOk) return synthLocal(res, text, lang, true);
-        errorJson(res, 502, 'PROVIDER_ERROR', err instanceof Error ? err.message : String(err));
-      } else res.end();
     }
+    return errorJson(res, 503, 'PROVIDER_NOT_CONFIGURED',
+      'no server voice: run the local Chatterbox service, set FISH_AUDIO_API_KEY, or install espeak-ng (sudo apt install espeak-ng); the client falls back to speechSynthesis');
   });
 
   // ---- LiveKit transport token ----
