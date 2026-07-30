@@ -4,3 +4,6 @@ var/
 .DS_Store
 __pycache__/
 *.pyc
+performance-audit-before.md
+performance-audit-after.md
+performance-comparison.md
