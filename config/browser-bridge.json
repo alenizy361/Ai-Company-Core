@@ -1,0 +1,12 @@
+{
+  "comment": "SIRA browser-automation bridge policy — enforced in code by src/desktop-bridge/browser/policy.ts and src/desktop-bridge/browser/dispatch.ts. This feature grants SIRA's parent conversation semantic (CSS-selector based) control of a Playwright-driven browser with NO per-action approval gate — the safety net is this file's URL denylist plus the SAME runtime kill switch the desktop bridge already has (POST /api/desktop-bridge/kill). Only enable this on a machine fully dedicated to SIRA.",
+  "enabled": false,
+  "deniedUrlPatterns": [
+    "^file://",
+    "^chrome://",
+    "^chrome-extension://",
+    "^about:",
+    "^data:",
+    "^javascript:"
+  ]
+}

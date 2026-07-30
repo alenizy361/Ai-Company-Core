@@ -1,0 +1,4 @@
+{
+  "comment": "SIRA Linux accessibility (AT-SPI) automation bridge policy — enforced in code by src/desktop-bridge/atspi/policy.ts and src/desktop-bridge/atspi/dispatch.ts. There is no free-text-command surface like desktop-bridge's run_command has here — every action is a structured find/click/set_text against a matched accessible widget, so the kill switch + full audit trail (the same ones the desktop bridge already has) are the real safety net, not a denylist. Only enable this on a machine fully dedicated to SIRA.",
+  "enabled": false
+}
