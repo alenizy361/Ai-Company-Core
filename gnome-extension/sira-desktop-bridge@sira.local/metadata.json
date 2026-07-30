@@ -1,0 +1,8 @@
+{
+  "uuid": "sira-desktop-bridge@sira.local",
+  "name": "SIRA Desktop Bridge",
+  "description": "Exposes a session D-Bus interface (org.sira.DesktopBridge) that lets the local SIRA desktop-bridge daemon take screenshots and inject mouse/keyboard input on Wayland, via GNOME Shell's own privileged Shell.Screenshot and Clutter virtual-input-device APIs (the same mechanism GNOME's accessibility/remote-desktop features use internally). Enabling this extension IS the one-time consent step SIRA's owner already gave — there is no per-action dialog. Shows a permanent top-bar indicator whenever active. Targets GNOME Shell 45+ (the ESM extension format); GNOME 42-44 (Ubuntu 22.04's default Shell) needs a legacy-format port, not covered here.",
+  "shell-version": ["45", "46", "47", "48"],
+  "url": "",
+  "version": 1
+}

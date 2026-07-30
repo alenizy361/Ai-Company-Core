@@ -8,6 +8,10 @@ import type { SseHub } from '../sse.ts';
 import type { SystemConfig } from '../../shared/config.ts';
 import { loadVoiceConfig } from '../../shared/config.ts';
 import { espeakBin, fishConfigured, chatterboxState } from './voice-providers.ts';
+import { getDesktopBridgeStatus } from '../../desktop-bridge/client.ts';
+import { isKilled } from '../../desktop-bridge/kill-switch.ts';
+import { loadDesktopPolicy } from '../../desktop-bridge/policy.ts';
+import type { Paths } from '../../shared/config.ts';
 
 export interface AdapterInfo {
   name: string;
@@ -23,6 +27,7 @@ export function registerHealthRoute(
   getAdapterInfo: () => AdapterInfo,
   getEngineInfo?: () => { name: string; reason: string },
   getBuildId?: () => string,
+  paths?: Paths,
 ): void {
   router.get('/api/health', async ({ res }) => {
     const now = Date.now();
@@ -89,6 +94,26 @@ export function registerHealthRoute(
       ...(process.env.CHATTERBOX_URL ? { chatterboxConfigured: chatterbox.enabled, chatterboxLive } : {}),
     };
 
+    // Desktop bridge: same honesty standard as the Chatterbox probe above —
+    // "enabled" (the policy file) and "reachable" (the daemon actually
+    // answering) are different facts. Only probed when this route was given
+    // `paths` (the lock file lives at paths.varDir); older/test call sites
+    // that omit it get an honest `null` rather than a guessed value.
+    let desktopBridge: { enabled: boolean; armed: boolean; reachable: boolean } | null = null;
+    if (paths) {
+      try {
+        const policy = loadDesktopPolicy();
+        if (policy.enabled) {
+          const status = await getDesktopBridgeStatus(cfg);
+          desktopBridge = { enabled: true, armed: !isKilled(paths), reachable: !('unreachable' in status) };
+        } else {
+          desktopBridge = { enabled: false, armed: !isKilled(paths), reachable: false };
+        }
+      } catch {
+        desktopBridge = null;
+      }
+    }
+
     const pendingApprovals = dbOk
       ? db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM approvals WHERE status = 'pending'`)?.n ?? 0
       : 0;
@@ -118,6 +143,7 @@ export function registerHealthRoute(
       build: getBuildId?.() ?? null,
       voiceProviders,
       pendingApprovals,
+      desktopBridge,
     });
   });
 }

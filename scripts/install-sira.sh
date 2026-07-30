@@ -140,8 +140,16 @@ if [ "$WITH_SERVICES" = true ]; then
 # OWNER_TOKEN=                   # required before setting SIRA_HOST to anything but loopback
 # PORT=4600
 # SIRA_SELF_DEV=1                # let SIRA modify its own code/interface (dedicated machine)
+# DESKTOP_BRIDGE_TOKEN=           # auto-generated below; shared secret between sira-api and sira-desktop-bridge
 ENVT
       chmod 600 "$ENV_FILE"
+    fi
+    # Desktop bridge auth token: generated once, works for both brand-new
+    # and pre-existing env files (an install from before this feature
+    # existed just gains the key here instead of via the heredoc above).
+    if ! grep -q '^DESKTOP_BRIDGE_TOKEN=' "$ENV_FILE" 2>/dev/null; then
+      printf '\nDESKTOP_BRIDGE_TOKEN=%s\n' "$($NODE_BIN -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")" >> "$ENV_FILE"
+      ok "generated DESKTOP_BRIDGE_TOKEN in $ENV_FILE"
     fi
     # Self-development mode: agents commit their own changes; give the repo a
     # local git identity so those commits succeed (agents run with HOME=repo).
@@ -150,9 +158,10 @@ ENVT
       git config user.email >/dev/null 2>&1 || git config user.email "sira@localhost"
       ok "self-development mode is ON — SIRA may modify its own code (git is the undo)"
     fi
-    for svc in api worker; do
+    for svc in api worker desktop-bridge; do
       ENTRY="src/server/index.ts"; DESC="SIRA OS API server"
       if [ "$svc" = worker ]; then ENTRY="src/worker/index.ts"; DESC="SIRA OS execution worker"; fi
+      if [ "$svc" = desktop-bridge ]; then ENTRY="src/desktop-bridge/index.ts"; DESC="SIRA OS desktop control bridge (mouse/keyboard/screen — off until config/desktop-bridge.json enabled:true)"; fi
       cat > "$UNIT_DIR/sira-$svc.service" <<UNIT
 [Unit]
 Description=$DESC
@@ -172,15 +181,53 @@ WantedBy=default.target
 UNIT
     done
     systemctl --user daemon-reload
-    systemctl --user enable sira-api.service sira-worker.service
+    systemctl --user enable sira-api.service sira-worker.service sira-desktop-bridge.service
     # restart (not just enable --now) so re-running the installer picks up a
     # new `claude login`, updated code, or changed env vars
-    systemctl --user restart sira-api.service sira-worker.service
-    ok "services sira-api + sira-worker enabled and (re)started"
+    systemctl --user restart sira-api.service sira-worker.service sira-desktop-bridge.service
+    ok "services sira-api + sira-worker + sira-desktop-bridge enabled and (re)started"
     if command -v loginctl >/dev/null 2>&1; then
       warn "so services keep running after you log out:  sudo loginctl enable-linger $USER"
     fi
-    RUN_HINT="systemctl --user status sira-api sira-worker
+
+    # Desktop control bridge: install the GNOME Shell extension the daemon
+    # needs for the primary (GNOME/Wayland) backend, and report tool
+    # dependencies honestly. Never fails the install if this machine isn't
+    # GNOME/Wayland — the daemon just reports itself not-ready over
+    # /api/desktop-bridge/status until it is. The feature itself stays OFF
+    # regardless (config/desktop-bridge.json "enabled": false by default) —
+    # this only makes it READY to turn on.
+    say "Desktop control bridge: extension + dependencies"
+    EXT_UUID="sira-desktop-bridge@sira.local"
+    EXT_SRC="$REPO_DIR/gnome-extension/$EXT_UUID"
+    EXT_DEST="$HOME/.local/share/gnome-shell/extensions/$EXT_UUID"
+    if [ -d "$EXT_SRC" ]; then
+      mkdir -p "$(dirname "$EXT_DEST")"
+      rm -rf "$EXT_DEST"
+      cp -r "$EXT_SRC" "$EXT_DEST"
+      ok "installed the GNOME Shell extension to $EXT_DEST"
+      if command -v gnome-extensions >/dev/null 2>&1; then
+        gnome-extensions enable "$EXT_UUID" >/dev/null 2>&1 || true
+        warn "extension enabled, but GNOME only loads a NEW extension after you log out and back in (Wayland has no live-reload for unregistered extensions)"
+      else
+        warn "gnome-extensions CLI not found — enable it manually (GNOME Extensions app), then log out/in"
+      fi
+    else
+      warn "gnome-extension/$EXT_UUID not found in this checkout — skipping extension install"
+    fi
+    if command -v gdbus >/dev/null 2>&1; then
+      ok "gdbus found (needed by the GNOME/Wayland desktop backend)"
+    else
+      warn "gdbus not found — install it for desktop control on GNOME/Wayland:  sudo apt install libglib2.0-bin"
+    fi
+    if command -v xdotool >/dev/null 2>&1 && command -v scrot >/dev/null 2>&1; then
+      ok "xdotool + scrot found (X11 desktop-control fallback available)"
+    else
+      warn "xdotool/scrot not found — the X11 fallback backend is unavailable (fine on GNOME/Wayland, the primary supported path); install with:  sudo apt install xdotool scrot"
+    fi
+    warn "desktop control stays OFF until you set \"enabled\": true in config/desktop-bridge.json — read gnome-extension/README.md first; only enable this on a machine with nothing sensitive on it"
+
+    RUN_HINT="systemctl --user status sira-api sira-worker sira-desktop-bridge
       journalctl --user -u sira-worker -f     # live worker logs"
   fi
 fi

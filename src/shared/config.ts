@@ -38,6 +38,15 @@ export interface SystemConfig {
   sessionIdleMs: number;
   /** SiraManager: cap on live SiraSession instances (each holds a CLI subprocess) before the most-idle turn-inactive one is evicted to make room. */
   maxSessions: number;
+  /** Port the desktop-bridge daemon (a separate OS process/systemd service —
+   *  see src/desktop-bridge/) binds to, loopback-only. */
+  desktopBridgePort: number;
+  /** Base URL the API server's MCP tool handlers call into the desktop-bridge
+   *  daemon at — same sidecar pattern health.ts already uses for Chatterbox. */
+  desktopBridgeUrl: string;
+  /** Wall-clock cap on a single desktop action (screenshot/click/type/etc.)
+   *  before it's treated as failed. */
+  desktopActionTimeoutMs: number;
 }
 
 export interface Paths {
@@ -72,9 +81,12 @@ export function loadSystemConfig(): SystemConfig {
     ['SIRA_MAX_WALL_CLOCK_MS', 'maxWallClockMs'],
     ['SIRA_SESSION_IDLE_MS', 'sessionIdleMs'],
     ['SIRA_MAX_SESSIONS', 'maxSessions'],
+    ['SIRA_DESKTOP_BRIDGE_PORT', 'desktopBridgePort'],
+    ['SIRA_DESKTOP_ACTION_TIMEOUT_MS', 'desktopActionTimeoutMs'],
   ] as const) {
     if (process.env[env]) (cfg as unknown as Record<string, number>)[key] = Number(process.env[env]);
   }
+  cfg.desktopBridgeUrl = process.env.SIRA_DESKTOP_BRIDGE_URL || cfg.desktopBridgeUrl || `http://127.0.0.1:${cfg.desktopBridgePort ?? 4601}`;
   return cfg;
 }
 

@@ -18,6 +18,7 @@ import { registerVoiceRoutes } from './routes/voice.ts';
 import { registerEvalRoutes } from './routes/evals.ts';
 import { registerVoiceProviderRoutes } from './routes/voice-providers.ts';
 import { registerSearchRoutes } from './routes/search.ts';
+import { registerDesktopBridgeRoutes } from './routes/desktop-bridge.ts';
 import { registerHealthRoute, type AdapterInfo } from './routes/health.ts';
 import { describeAdapterSelection, selectAdapter } from '../adapters/select.ts';
 import type { ModelAdapter } from '../adapters/types.ts';
@@ -89,7 +90,7 @@ function computeWebBuildId(dir: string): string {
 }
 const webBuildId = computeWebBuildId(paths.webDir);
 
-registerHealthRoute(router, db, hub, cfg, getAdapterInfo, () => engineInfo, () => webBuildId);
+registerHealthRoute(router, db, hub, cfg, getAdapterInfo, () => engineInfo, () => webBuildId, paths);
 registerStateRoutes(router, db, hub, cfg);
 registerReadRoutes(router, db);
 registerWriteRoutes(router, db);
@@ -98,6 +99,7 @@ registerVoiceRoutes(router, db);
 registerEvalRoutes(router, db);
 registerVoiceProviderRoutes(router, db);
 registerSearchRoutes(router, db);
+registerDesktopBridgeRoutes(router, db, cfg, paths);
 
 // Background Objective Completion Bridge: SiraSession instances live only in
 // THIS process's memory, so the sweep that resumes them for a finished

@@ -18,6 +18,8 @@ import { resolveClaudeBin } from '../adapters/claude-cli.ts';
 import { cliAvailable } from '../adapters/select.ts';
 import { buildSiraAgents } from './agents.ts';
 import { buildRoleToolServer } from '../tools/sdk-bridge.ts';
+import { buildDesktopToolServer, DESKTOP_TOOL_NAMES } from '../tools/desktop-bridge-tools.ts';
+import { loadDesktopPolicy } from '../desktop-bridge/policy.ts';
 import { siraAppendPrompt } from './append-prompt.ts';
 import { SdkMessageRouter, type TurnEvent } from './router.ts';
 
@@ -161,7 +163,24 @@ export class SiraSession {
     const parentCustomTools = parentPolicy.tools
       .filter((t) => ['read_artifact', 'write_artifact', 'memory_search', 'memory_write', 'task_note'].includes(t))
       .map((t) => `mcp__${parentServerKey}__${t}`);
-    const mcpServers = { ...subagentMcpServers, [parentServerKey]: parentToolServer.server };
+
+    // Desktop control (src/desktop-bridge/) is an explicit, owner-driven
+    // opt-in (config/desktop-bridge.json's "enabled" flag — off by
+    // default), granted ONLY to the parent session, never to specialist
+    // subagents — the owner asked for SIRA itself to have this capability,
+    // not every delegated role. Enforcement (kill switch, catastrophic
+    // denylist, audit) happens entirely in the separate desktop-bridge
+    // daemon process; this just wires the MCP tools through when enabled.
+    const desktopPolicy = loadDesktopPolicy();
+    const desktopServerKey = 'sira-desktop';
+    const desktopCustomTools = desktopPolicy.enabled
+      ? DESKTOP_TOOL_NAMES.map((t) => `mcp__${desktopServerKey}__${t}`)
+      : [];
+    const mcpServers = {
+      ...subagentMcpServers,
+      [parentServerKey]: parentToolServer.server,
+      ...(desktopPolicy.enabled ? { [desktopServerKey]: buildDesktopToolServer({ cfg, agentKey: 'sira', conversationId }).server } : {}),
+    };
 
     // The subprocess must NOT inherit a parent Claude session identity —
     // when SIRA itself runs inside a Claude Code session (dev, self-dev),
@@ -192,7 +211,7 @@ export class SiraSession {
       // not merely intercepted below. Read/Glob/Grep stay (read-only, path-
       // checked below); Task is delegation (also gated below); the parent's
       // own write/memory capability is its mcp__sira-parent__* tools.
-      tools: ['Read', 'Glob', 'Grep', 'Task', 'WebSearch', 'WebFetch', ...parentCustomTools],
+      tools: ['Read', 'Glob', 'Grep', 'Task', 'WebSearch', 'WebFetch', ...parentCustomTools, ...desktopCustomTools],
       includePartialMessages: true,
       ...(claudeBin.includes('/') && existsSync(claudeBin) ? { pathToClaudeCodeExecutable: claudeBin } : {}),
       maxTurns: 80,

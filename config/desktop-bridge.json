@@ -1,0 +1,28 @@
+{
+  "comment": "SIRA desktop control bridge policy — enforced in code by src/desktop-bridge/policy.ts and src/desktop-bridge/dispatch.ts. This feature grants SIRA's parent conversation direct mouse/keyboard/screen control with NO per-action approval gate — the safety net is this file's denylist plus the runtime kill switch (POST /api/desktop-bridge/kill), not per-action confirmation. Only enable this on a machine fully dedicated to SIRA.",
+  "enabled": false,
+  "deniedCommandPatterns": [
+    "\\bmkfs(\\.|\\b)",
+    "\\bdd\\b.*\\bof=/dev/",
+    "\\bshred\\b.*\\b/dev/",
+    "\\bwipefs\\b",
+    "\\bblkdiscard\\b",
+    "\\b(fdisk|parted|sfdisk|cfdisk)\\b",
+    "\\brm\\b.*(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\\s+/\\*?(\\s|$)",
+    "\\brm\\b.*\\s/(etc|boot|usr|var|home|lib|lib64|sbin|bin)(/|\\s|$)",
+    "\\b(shutdown|reboot|poweroff|halt)\\b",
+    "\\bsystemctl\\b.*\\b(stop|disable|mask)\\b.*\\bsira-",
+    "\\b(apt|apt-get|dpkg)\\b.*\\b(purge|remove)\\b.*\\*",
+    "\\bchmod\\b.*-R.*\\s/(\\s|$)",
+    "\\bchown\\b.*-R.*\\s/(\\s|$)",
+    ":\\(\\)\\s*\\{\\s*:\\|:&\\s*\\}\\s*;"
+  ],
+  "curatedApps": {
+    "browser": { "desktopFile": "firefox.desktop", "fallbackBin": "firefox" },
+    "whatsapp": { "desktopFile": "whatsapp-for-linux.desktop", "fallbackBin": "whatsapp-for-linux" },
+    "mail": { "desktopFile": "org.gnome.Evolution.desktop", "fallbackBin": "evolution" },
+    "calendar": { "desktopFile": "org.gnome.Calendar.desktop", "fallbackBin": "gnome-calendar" },
+    "files": { "desktopFile": "org.gnome.Nautilus.desktop", "fallbackBin": "nautilus" },
+    "terminal": { "desktopFile": "org.gnome.Terminal.desktop", "fallbackBin": "gnome-terminal" }
+  }
+}

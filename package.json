@@ -11,6 +11,7 @@
     "dev": "node --disable-warning=ExperimentalWarning src/cli/dev.ts",
     "server": "node --disable-warning=ExperimentalWarning src/server/index.ts",
     "worker": "node --disable-warning=ExperimentalWarning src/worker/index.ts",
+    "desktop-bridge": "node --disable-warning=ExperimentalWarning src/desktop-bridge/index.ts",
     "seed": "node --disable-warning=ExperimentalWarning src/cli/seed.ts",
     "eval": "node --disable-warning=ExperimentalWarning src/cli/eval.ts",
     "typecheck": "tsc --noEmit",

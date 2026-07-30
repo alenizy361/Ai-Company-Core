@@ -180,3 +180,29 @@ test('health: CHATTERBOX_ENABLED=off never reports chatterbox even when the serv
     if (prevEnabled === undefined) delete process.env.CHATTERBOX_ENABLED; else process.env.CHATTERBOX_ENABLED = prevEnabled;
   }
 });
+
+test('health: desktopBridge is honestly null when the route was registered without paths', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const router = new Router();
+  registerHealthRoute(router, env.db, hubStub, env.cfg, () => ({ name: 'mock', reason: 'test' }));
+  const srv = await startServer(router);
+  t.after(srv.close);
+
+  const health = await (await fetch(`${srv.base}/api/health`)).json() as { desktopBridge: unknown };
+  assert.equal(health.desktopBridge, null, 'no paths given means no real check was possible — must not guess');
+});
+
+test('health: desktopBridge reports enabled/armed/reachable from the real policy file, lock file, and daemon', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const router = new Router();
+  registerHealthRoute(router, env.db, hubStub, env.cfg, () => ({ name: 'mock', reason: 'test' }), undefined, undefined, env.paths);
+  const srv = await startServer(router);
+  t.after(srv.close);
+
+  const disabled = await (await fetch(`${srv.base}/api/health`)).json() as {
+    desktopBridge: { enabled: boolean; armed: boolean; reachable: boolean } | null;
+  };
+  assert.deepEqual(disabled.desktopBridge, { enabled: false, armed: true, reachable: false }, 'policy.json enabled:false by default');
+});

@@ -18,6 +18,8 @@
   "toolResultInlineLimit": 8000,
   "sessionIdleMs": 3600000,
   "maxSessions": 50,
+  "desktopBridgePort": 4601,
+  "desktopActionTimeoutMs": 15000,
   "modelTiers": {
     "fast": "claude-haiku-4-5-20251001",
     "balanced": "claude-sonnet-5",
