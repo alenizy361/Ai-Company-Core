@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # SIRA OS installer/deployer for a dedicated machine (Linux/macOS/WSL).
 #
-#   ./scripts/install-sira.sh                 install + verify, then tell you how to run
-#   ./scripts/install-sira.sh --services      also install systemd services (24/7 operation)
-#   ./scripts/install-sira.sh --skip-tests    skip the test suite (not recommended)
+#   ./scripts/install-sira.sh                     install + verify, then tell you how to run
+#   ./scripts/install-sira.sh --services          also install systemd services (24/7 operation)
+#   ./scripts/install-sira.sh --skip-tests        skip the test suite (not recommended)
+#   ./scripts/install-sira.sh --enable-desktop-bridge
+#       everything --services does, PLUS installs the GNOME Shell extension
+#       and flips desktop control ON (full screen/mouse/keyboard/app/command
+#       access, no per-action confirmation — only the kill switch and the
+#       catastrophic-action denylist protect you). Implies --services. Only
+#       use this on a machine with nothing sensitive on it. One manual step
+#       remains after: log out and back in so GNOME loads the extension.
 #
 # What it does, in order:
 #   1. Checks Node.js >= 22.18 (needed for built-in SQLite + TS type-stripping)
@@ -13,16 +20,20 @@
 #   4. Runs the full test suite (42 tests incl. the acceptance tests)
 #   5. Runs every agent's evaluation suite and activates agents that pass 100%
 #   6. Optionally installs systemd user services with restart policies
+#   7. With --enable-desktop-bridge: installs the GNOME extension and turns
+#      desktop control on (still needs one logout/login to take effect)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO_DIR="$(pwd)"
 
 WITH_SERVICES=false
 SKIP_TESTS=false
+ENABLE_DESKTOP_BRIDGE=false
 for arg in "$@"; do
   case "$arg" in
     --services) WITH_SERVICES=true ;;
     --skip-tests) SKIP_TESTS=true ;;
+    --enable-desktop-bridge) ENABLE_DESKTOP_BRIDGE=true; WITH_SERVICES=true ;;
     *) echo "unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
@@ -225,7 +236,26 @@ UNIT
     else
       warn "xdotool/scrot not found — the X11 fallback backend is unavailable (fine on GNOME/Wayland, the primary supported path); install with:  sudo apt install xdotool scrot"
     fi
-    warn "desktop control stays OFF until you set \"enabled\": true in config/desktop-bridge.json — read gnome-extension/README.md first; only enable this on a machine with nothing sensitive on it"
+    if [ "$ENABLE_DESKTOP_BRIDGE" = true ]; then
+      say "Enabling desktop control (--enable-desktop-bridge)"
+      warn "SIRA will have FULL screen/mouse/keyboard/app/command control with NO per-action confirmation."
+      warn "Only the kill switch (POST /api/desktop-bridge/kill) and the catastrophic-action denylist protect you now."
+      DESKTOP_CONFIG="$REPO_DIR/config/desktop-bridge.json"
+      "$NODE_BIN" -e "
+        const fs = require('node:fs');
+        const p = process.argv[1];
+        const cfg = JSON.parse(fs.readFileSync(p, 'utf8'));
+        cfg.enabled = true;
+        fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
+      " "$DESKTOP_CONFIG"
+      ok "config/desktop-bridge.json: enabled = true"
+      systemctl --user restart sira-api.service sira-desktop-bridge.service
+      ok "sira-api + sira-desktop-bridge restarted with desktop control enabled"
+      DESKTOP_BRIDGE_NOTE="ON — log out and back in now so GNOME loads the extension, then verify:  curl -s http://127.0.0.1:4600/api/desktop-bridge/status | jq"
+    else
+      warn "desktop control stays OFF until you set \"enabled\": true in config/desktop-bridge.json (or re-run with --enable-desktop-bridge) — read gnome-extension/README.md first; only enable this on a machine with nothing sensitive on it"
+      DESKTOP_BRIDGE_NOTE="installed but OFF — turn on with:  ./scripts/install-sira.sh --enable-desktop-bridge"
+    fi
 
     RUN_HINT="systemctl --user status sira-api sira-worker sira-desktop-bridge
       journalctl --user -u sira-worker -f     # live worker logs"
@@ -245,6 +275,9 @@ echo "    Voice:     works now with browser/local providers; put provider keys i
 echo "               ~/.config/sira/env (FISH_AUDIO_API_KEY, DEEPGRAM_API_KEY, …)"
 echo "               then: systemctl --user restart sira-api sira-worker"
 echo "    Note:      the mic and speech APIs need localhost or HTTPS in the browser."
+if [ -n "${DESKTOP_BRIDGE_NOTE:-}" ]; then
+  echo "    Desktop control: $DESKTOP_BRIDGE_NOTE"
+fi
 if [ -z "${FISH_AUDIO_API_KEY:-}" ] && ! command -v espeak-ng >/dev/null 2>&1 && ! command -v espeak >/dev/null 2>&1; then
   warn "no server voice installed — Linux browsers often have ZERO speech voices,"
   warn "so replies may be silent. Enable SIRA's local voice (Arabic + English):"

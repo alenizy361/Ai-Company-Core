@@ -57,10 +57,21 @@ ported to it.
 
 The feature is **off by default** even once the extension and the
 `sira-desktop-bridge` systemd service are both installed and running — the
-daemon just reports itself not-ready. To actually enable it:
+daemon just reports itself not-ready.
+
+The one-command way — installs everything above AND flips it on:
+
+```sh
+./scripts/install-sira.sh --enable-desktop-bridge
+```
+
+Or by hand, on an existing `--services` install:
 
 1. Set `"enabled": true` in `config/desktop-bridge.json`.
 2. `systemctl --user restart sira-api sira-desktop-bridge`
+
+Either way, you still need to log out and back in once for GNOME to load
+the extension itself (see above) — nothing scripts around that.
 
 ## Verifying it's really working
 
