@@ -319,6 +319,7 @@ export async function runExecution(
     objectiveId: task.objective_id,
     taskId: task.id,
     executionId,
+    conversationId: null,
     agentKey: task.agent_key,
     workspaceRoot,
     artifactsDir: paths.artifactsDir,
@@ -449,9 +450,13 @@ export async function runExecution(
           pushUser(JSON.stringify({ tool_result: { ok: false, status: 'rejected', detail: 'The owner rejected this action. Adapt your approach or fail honestly.' } }));
           continue;
         }
-        // Approved: actually execute the recorded call now.
+        // Approved: actually execute the recorded call now. Use
+        // outcome.args (dispatchTool's own resolved copy — e.g. __abs/__rel
+        // for path tools), never action.args: dispatchTool never mutates
+        // the object it was handed, only its own internal copy — reusing
+        // action.args here would resolve `undefined` as the target path.
         setStatuses(state, 'running', 'running', 'approval_granted');
-        const executed = await executeToolCall(db, toolCtx, outcome.toolCallId, String(action.tool), (action.args ?? {}) as Record<string, unknown>);
+        const executed = await executeToolCall(db, toolCtx, outcome.toolCallId, String(action.tool), outcome.args);
         pushUser(JSON.stringify({ tool_result: { status: 'approved_and_executed', ...formatResult(executed.result) } }));
         continue;
       }

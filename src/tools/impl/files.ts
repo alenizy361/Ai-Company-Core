@@ -74,6 +74,39 @@ export const writeFileTool: Tool = {
   },
 };
 
+export const editFileTool: Tool = {
+  name: 'edit_file',
+  description: 'Make a precise find-and-replace edit to an existing file (within your writable paths). Args: {path, old_string, new_string, replace_all?}. old_string must match EXACTLY (including whitespace) and must be unique in the file unless replace_all is true.',
+  effects: 'write',
+  schema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', minLength: 1 },
+      old_string: { type: 'string', minLength: 1 },
+      new_string: { type: 'string' },
+      replace_all: { type: 'boolean' },
+    },
+    required: ['path', 'old_string', 'new_string'],
+    additionalProperties: true,
+  },
+  run(args): Promise<ToolResult> {
+    const abs = String(args.__abs);
+    if (!existsSync(abs)) return Promise.resolve({ ok: false, error: `file not found: ${String(args.path)}` });
+    if (statSync(abs).isDirectory()) return Promise.resolve({ ok: false, error: `${String(args.path)} is a directory` });
+    const content = readFileSync(abs, 'utf8');
+    const oldStr = String(args.old_string);
+    const occurrences = content.split(oldStr).length - 1;
+    if (occurrences === 0) return Promise.resolve({ ok: false, error: 'old_string not found in file — it must match exactly, including whitespace' });
+    if (occurrences > 1 && !args.replace_all) {
+      return Promise.resolve({ ok: false, error: `old_string appears ${occurrences} times — make it more specific, or pass replace_all: true` });
+    }
+    const newStr = String(args.new_string);
+    const updated = args.replace_all ? content.split(oldStr).join(newStr) : content.replace(oldStr, newStr);
+    writeFileSync(abs, updated, 'utf8');
+    return Promise.resolve({ ok: true, data: { path: args.path, replacements: args.replace_all ? occurrences : 1 } });
+  },
+};
+
 export const listDirTool: Tool = {
   name: 'list_dir',
   description: 'List entries of a workspace directory. Args: {path} ("." for the workspace root).',

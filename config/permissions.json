@@ -1,6 +1,12 @@
 {
   "comment": "Role-based tool policy, enforced in code by src/tools/dispatch.ts at every tool call. Paths are globs relative to the objective workspace root. Commands are exact-binary + argument-prefix allowlists executed without a shell.",
   "roles": {
+    "sira": {
+      "tools": ["read_artifact", "write_artifact", "memory_search", "memory_write", "task_note"],
+      "paths": { "read": [], "write": [] },
+      "commands": [],
+      "approvalRequired": []
+    },
     "ceo": {
       "tools": ["read_file", "list_dir", "search", "read_artifact", "write_artifact", "memory_search", "memory_write", "task_note"],
       "paths": { "read": ["**"], "write": [] },
@@ -20,25 +26,25 @@
       "approvalRequired": []
     },
     "frontend": {
-      "tools": ["read_file", "write_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "tools": ["read_file", "write_file", "edit_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
       "paths": { "read": ["**"], "write": ["web/**", "public/**", "assets/**", "src/ui/**"] },
       "commands": [{ "bin": "node" }, { "bin": "npm", "argsPrefix": ["run"] }, { "bin": "npm", "argsPrefix": ["test"] }],
       "approvalRequired": [{ "tool": "run_command", "match": "npm install*" }]
     },
     "backend": {
-      "tools": ["read_file", "write_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "tools": ["read_file", "write_file", "edit_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
       "paths": { "read": ["**"], "write": ["src/**", "server/**", "api/**", "lib/**"] },
       "commands": [{ "bin": "node" }, { "bin": "npm", "argsPrefix": ["run"] }, { "bin": "npm", "argsPrefix": ["test"] }],
       "approvalRequired": [{ "tool": "run_command", "match": "npm install*" }]
     },
     "database": {
-      "tools": ["read_file", "write_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "tools": ["read_file", "write_file", "edit_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
       "paths": { "read": ["**"], "write": ["db/**", "migrations/**", "src/shared/migrations/**"] },
       "commands": [{ "bin": "node" }],
       "approvalRequired": []
     },
     "qa": {
-      "tools": ["read_file", "write_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "tools": ["read_file", "write_file", "edit_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
       "paths": { "read": ["**"], "write": ["tests/**"] },
       "commands": [{ "bin": "node" }, { "bin": "npm", "argsPrefix": ["run"] }, { "bin": "npm", "argsPrefix": ["test"] }],
       "approvalRequired": []
@@ -68,10 +74,10 @@
       "approvalRequired": []
     },
     "operations": {
-      "tools": ["read_file", "write_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
+      "tools": ["read_file", "write_file", "edit_file", "list_dir", "search", "run_command", "read_artifact", "write_artifact", "memory_search", "task_note"],
       "paths": { "read": ["**"], "write": ["config/**", "scripts/**"] },
       "commands": [{ "bin": "node" }, { "bin": "npm", "argsPrefix": ["run"] }],
-      "approvalRequired": [{ "tool": "write_file", "match": "config/*" }]
+      "approvalRequired": [{ "tool": "write_file", "match": "config/*" }, { "tool": "edit_file", "match": "config/*" }]
     },
     "support": {
       "tools": ["read_artifact", "write_artifact", "memory_search", "memory_write", "task_note"],

@@ -49,9 +49,37 @@ export function resolveWorkspacePath(workspaceRoot: string, agentPath: string): 
   return { abs, rel: rel.split(sep).join('/') };
 }
 
+/**
+ * Interpreter escape hatches: even an otherwise-allowlisted binary (e.g. a
+ * role's plain `{bin:"node"}` entry, meant for `node script.js`) must never
+ * be usable as `node -e "<arbitrary code>"` — that turns one allowlisted
+ * binary into unrestricted code execution regardless of the run_command
+ * spawn being shell-free. This check runs BEFORE the allowlist and cannot
+ * be widened by any role's argsPrefix — it is not a policy choice.
+ */
+const INTERPRETER_EVAL_FLAGS: Record<string, RegExp> = {
+  node: /^(-e|--eval|-p|--print)$/,
+  nodejs: /^(-e|--eval|-p|--print)$/,
+  python: /^-c$/,
+  python3: /^-c$/,
+  perl: /^-e$/,
+  ruby: /^-e$/,
+  bash: /^-c$/,
+  sh: /^-c$/,
+  zsh: /^-c$/,
+  dash: /^-c$/,
+};
+
+function usesInterpreterEval(parts: string[]): boolean {
+  const flagPattern = INTERPRETER_EVAL_FLAGS[parts[0]];
+  if (!flagPattern) return false;
+  return parts.slice(1).some((p) => flagPattern.test(p));
+}
+
 export function commandAllowed(policy: RolePolicy, cmd: string): boolean {
   const parts = cmd.trim().split(/\s+/);
   if (parts.length === 0 || !parts[0]) return false;
+  if (usesInterpreterEval(parts)) return false;
   return policy.commands.some((allowed) => {
     if (allowed.bin !== parts[0]) return false;
     const prefix = allowed.argsPrefix ?? [];
@@ -62,7 +90,7 @@ export function commandAllowed(policy: RolePolicy, cmd: string): boolean {
 /** The canonical string an approval matcher is tested against, per tool. */
 export function approvalSubject(tool: string, args: Record<string, unknown>): string {
   if (tool === 'run_command') return String(args.cmd ?? '');
-  if (tool === 'write_file') return String(args.path ?? '');
+  if (tool === 'write_file' || tool === 'edit_file') return String(args.path ?? '');
   return JSON.stringify(args);
 }
 

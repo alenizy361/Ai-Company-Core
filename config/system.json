@@ -1,5 +1,6 @@
 {
   "port": 4600,
+  "host": "127.0.0.1",
   "orgId": "org_default",
   "leaseMs": 60000,
   "heartbeatMs": 10000,

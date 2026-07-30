@@ -9,9 +9,15 @@ export interface ToolCtx {
   db: Db;
   cfg: SystemConfig;
   orgId: string;
-  objectiveId: string;
-  taskId: string;
-  executionId: string;
+  /**
+   * Null for a LIVE conversational tool call (the SDK parent session or one
+   * of its subagents, outside any objective/task/execution) — conversationId
+   * identifies it instead. The worker pipeline always sets all three.
+   */
+  objectiveId: string | null;
+  taskId: string | null;
+  executionId: string | null;
+  conversationId: string | null;
   agentKey: string;
   workspaceRoot: string;
   artifactsDir: string;

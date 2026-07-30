@@ -9,6 +9,14 @@ export const REPO_ROOT = resolve(HERE, '..', '..');
 
 export interface SystemConfig {
   port: number;
+  /** Security boundary (Phase 2): the interface the API server binds to.
+   *  Defaults to loopback-only — an unauthenticated API (the default when
+   *  OWNER_TOKEN is unset, for a single-owner local deployment) must never
+   *  be reachable from the network unless the owner explicitly opts in via
+   *  SIRA_HOST. This matches what scripts/install-sira.sh's env template
+   *  already documented ("OWNER_TOKEN required only when exposing beyond
+   *  localhost") but the server never actually enforced. */
+  host: string;
   orgId: string;
   leaseMs: number;
   heartbeatMs: number;
@@ -47,6 +55,7 @@ function readJson<T>(path: string): T {
 
 export function loadSystemConfig(): SystemConfig {
   const cfg = readJson<SystemConfig>(join(REPO_ROOT, 'config', 'system.json'));
+  cfg.host = process.env.SIRA_HOST || cfg.host || '127.0.0.1';
   if (process.env.PORT) cfg.port = Number(process.env.PORT);
   // Timing overrides so integration tests can exercise lease/sweep/recovery
   // behavior in seconds instead of minutes.

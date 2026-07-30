@@ -5,23 +5,58 @@
 // final assistant response. This module owns: input pumping, turn
 // demultiplexing, event routing/persistence, approvals, interrupt, and
 // session resume across process restarts.
-import { existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { join, resolve, dirname, sep } from 'node:path';
 import { query, type Options, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { Db } from '../shared/db.ts';
 import { ulid } from '../shared/ids.ts';
 import { emitEvent } from '../shared/events.ts';
 import { notify } from '../shared/notify.ts';
-import { selfDevEnabled, selfDevRoot, type Paths, type SystemConfig } from '../shared/config.ts';
+import { selfDevEnabled, selfDevRoot, loadPermissions, type Paths, type SystemConfig } from '../shared/config.ts';
 import { converseModel } from '../shared/model-tier.ts';
 import { resolveClaudeBin } from '../adapters/claude-cli.ts';
 import { cliAvailable } from '../adapters/select.ts';
 import { buildSiraAgents } from './agents.ts';
+import { buildRoleToolServer } from '../tools/sdk-bridge.ts';
 import { siraAppendPrompt } from './append-prompt.ts';
 import { SdkMessageRouter, type TurnEvent } from './router.ts';
 
-/** Commands the owner must explicitly approve, even on a dedicated machine. */
-const DANGEROUS_BASH = /\brm\s+-rf\s+[/~]|\bgit\s+push\s+.*--force|\bsudo\b|\bmkfs\b|\bshutdown\b|\breboot\b|\bdd\s+if=/;
+/**
+ * Security boundary (Phase 2): paths a Read/Glob/Grep call must never
+ * resolve into, regardless of workspace containment — a credential or
+ * system path that happens to sit inside the workspace root (e.g. a
+ * committed .env) is still off-limits. Defense in depth; the primary
+ * boundary is workspace containment below.
+ */
+const SENSITIVE_PATH_PATTERNS = [
+  /\/\.ssh(\/|$)/, /\/\.aws(\/|$)/, /\/\.config\/gcloud(\/|$)/, /\/\.docker(\/|$)/, /\/\.kube(\/|$)/,
+  /\/\.gnupg(\/|$)/, /\/\.local\/share\/keyrings(\/|$)/, /\/\.config\/google-chrome(\/|$)/, /\/\.mozilla(\/|$)/,
+  /(^|\/)\.env(\..+)?$/, /\/\.netrc$/, /\/\.npmrc$/, /^\/etc\/(shadow|passwd|sudoers|gshadow)/,
+  /^\/proc(\/|$)/, /^\/sys(\/|$)/, /^\/dev(\/|$)/,
+];
+
+export function isSensitivePath(absPath: string): boolean {
+  return SENSITIVE_PATH_PATTERNS.some((re) => re.test(absPath));
+}
+
+/** Realpath-based containment (defeats ../ and symlink escapes), matching
+ *  src/tools/policy.ts's resolveWorkspacePath — but for an absolute path,
+ *  since that's the shape Read/Glob/Grep inputs use. */
+export function isContainedIn(absPath: string, root: string): boolean {
+  try {
+    const rootReal = realpathSync(root);
+    let probe = resolve(absPath);
+    while (!existsSync(probe)) {
+      const parent = dirname(probe);
+      if (parent === probe) break;
+      probe = parent;
+    }
+    const probeReal = realpathSync(probe);
+    return probeReal === rootReal || probeReal.startsWith(rootReal + sep);
+  } catch {
+    return false;
+  }
+}
 
 class PushableInput implements AsyncIterable<SDKUserMessage> {
   private queue: SDKUserMessage[] = [];
@@ -105,7 +140,23 @@ export class SiraSession {
     const orgName = db.get<{ name: string }>('SELECT name FROM orgs WHERE id = ?', cfg.orgId)?.name ?? 'SIRA';
     const cwd = selfDevEnabled() ? selfDevRoot() : join(paths.workspaceDir, 'sira', conversationId);
     mkdirSync(cwd, { recursive: true });
-    const agents = buildSiraAgents(db, cfg);
+    const { agents, mcpServers: subagentMcpServers } = buildSiraAgents(db, cfg, paths, cwd, conversationId);
+
+    // The parent session's OWN tool grant: read + company memory only — no
+    // write_file/edit_file/run_command. The parent orchestrates and
+    // delegates to specialist subagents for any actual change; this is not
+    // a limitation worked around elsewhere, it is the design (see
+    // append-prompt.ts's delegation section and SHARED_RULES in agents.ts).
+    const parentPolicy = loadPermissions().sira;
+    const parentServerKey = 'sira-parent';
+    const parentToolServer = buildRoleToolServer({
+      db, cfg, policy: parentPolicy, agentKey: 'sira', workspaceRoot: cwd, artifactsDir: paths.artifactsDir,
+      orgId: cfg.orgId, conversationId,
+    });
+    const parentCustomTools = parentPolicy.tools
+      .filter((t) => ['read_artifact', 'write_artifact', 'memory_search', 'memory_write', 'task_note'].includes(t))
+      .map((t) => `mcp__${parentServerKey}__${t}`);
+    const mcpServers = { ...subagentMcpServers, [parentServerKey]: parentToolServer.server };
 
     // The subprocess must NOT inherit a parent Claude session identity —
     // when SIRA itself runs inside a Claude Code session (dev, self-dev),
@@ -129,8 +180,15 @@ export class SiraSession {
         append: siraAppendPrompt({ orgName, replyLang: opts.replyLang ?? null, port: cfg.port, agentKeys: Object.keys(agents) }),
       },
       agents,
+      mcpServers,
+      // Explicit allowlist — NOT the claude_code tool preset. Bash and
+      // unrestricted Write/Edit are never offered to any SIRA agent, live
+      // or delegated: they are removed from the model's context entirely,
+      // not merely intercepted below. Read/Glob/Grep stay (read-only, path-
+      // checked below); Task is delegation (also gated below); the parent's
+      // own write/memory capability is its mcp__sira-parent__* tools.
+      tools: ['Read', 'Glob', 'Grep', 'Task', 'WebSearch', 'WebFetch', ...parentCustomTools],
       includePartialMessages: true,
-      permissionMode: 'acceptEdits',
       ...(claudeBin.includes('/') && existsSync(claudeBin) ? { pathToClaudeCodeExecutable: claudeBin } : {}),
       maxTurns: 80,
       ...(opts.resume ? { resume: opts.resume } : {}),
@@ -148,17 +206,30 @@ export class SiraSession {
           if (lifecycle !== 'active') {
             return { behavior: 'deny', message: `Agent "${subagent}" is not active in the company roster — delegate to an active agent or do the work yourself.` };
           }
+          return { behavior: 'allow', updatedInput: input };
         }
-        // Runtime-enforced approvals: routine reversible work flows freely;
-        // genuinely dangerous commands pause THIS session until the owner
-        // decides (same approvals table + UI as the worker pipeline).
-        if (toolName !== 'Bash') return { behavior: 'allow', updatedInput: input };
-        const cmd = String((input as { command?: string }).command ?? '');
-        if (!DANGEROUS_BASH.test(cmd)) return { behavior: 'allow', updatedInput: input };
-        const decision = await this.requestApproval(toolName, cmd);
-        return decision
-          ? { behavior: 'allow', updatedInput: input }
-          : { behavior: 'deny', message: 'The owner declined this command.' };
+        // Read/Glob/Grep are native SDK tools — dispatchTool never sees
+        // these calls, so containment + sensitive-path denial is enforced
+        // HERE, mirroring src/tools/policy.ts's resolveWorkspacePath for the
+        // worker pipeline (same defense, different call site).
+        if (toolName === 'Read' || toolName === 'Glob' || toolName === 'Grep') {
+          const rawPath = String((input as { file_path?: string; path?: string }).file_path ?? (input as { path?: string }).path ?? '');
+          if (rawPath) {
+            const abs = resolve(cwd, rawPath);
+            if (isSensitivePath(abs)) {
+              return { behavior: 'deny', message: `reading "${rawPath}" is not permitted — this is a sensitive system/credential path, never readable regardless of workspace.` };
+            }
+            if (!isContainedIn(abs, cwd)) {
+              return { behavior: 'deny', message: `"${rawPath}" resolves outside the working directory — SIRA can only read within its workspace.` };
+            }
+          }
+          return { behavior: 'allow', updatedInput: input };
+        }
+        // Everything else (WebSearch/WebFetch, and every mcp__* custom
+        // tool) is allowed through here — the custom tools' own handlers
+        // already run the full dispatchTool() enforcement (path policy,
+        // command allowlisting, approvals, audit) before doing anything.
+        return { behavior: 'allow', updatedInput: input };
       },
     };
 

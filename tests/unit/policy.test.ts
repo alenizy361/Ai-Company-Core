@@ -59,3 +59,61 @@ test('approval matchers', () => {
   assert.ok(!approvalRequired(policy, 'run_command', { cmd: 'npm run build' }));
   assert.ok(!approvalRequired(policy, 'write_file', { path: 'web/a.js' }));
 });
+
+// Phase 2 security: interpreter -e/-c flags turn an otherwise-allowlisted
+// bare binary into unrestricted code execution — this must be denied
+// UNCONDITIONALLY, before the allowlist, regardless of any role's
+// argsPrefix. Covers every interpreter this project ever allowlists
+// (`{bin:"node"}` with no argsPrefix is the exact vulnerable shape).
+const interpreterPolicy: RolePolicy = {
+  tools: ['run_command'],
+  paths: { read: ['**'], write: [] },
+  commands: [
+    { bin: 'node' }, { bin: 'nodejs' }, { bin: 'python' }, { bin: 'python3' },
+    { bin: 'perl' }, { bin: 'ruby' }, { bin: 'bash' }, { bin: 'sh' }, { bin: 'zsh' }, { bin: 'dash' },
+  ],
+  approvalRequired: [],
+};
+
+test('interpreter eval flags are denied unconditionally, even for an allowlisted bare binary', () => {
+  assert.ok(!commandAllowed(interpreterPolicy, 'node -e "require(\'child_process\').execSync(\'id\')"'));
+  assert.ok(!commandAllowed(interpreterPolicy, 'node --eval console.log(1)'));
+  assert.ok(!commandAllowed(interpreterPolicy, 'node -p 1+1'));
+  assert.ok(!commandAllowed(interpreterPolicy, 'node --print 1+1'));
+  assert.ok(!commandAllowed(interpreterPolicy, 'nodejs -e "process.exit(1)"'));
+  assert.ok(!commandAllowed(interpreterPolicy, 'python -c "import os; os.system(\'id\')"'));
+  assert.ok(!commandAllowed(interpreterPolicy, 'python3 -c "import os; os.system(\'id\')"'));
+  assert.ok(!commandAllowed(interpreterPolicy, 'perl -e "system(\'id\')"'));
+  assert.ok(!commandAllowed(interpreterPolicy, 'ruby -e "system(\'id\')"'));
+  assert.ok(!commandAllowed(interpreterPolicy, 'bash -c "id"'));
+  assert.ok(!commandAllowed(interpreterPolicy, 'sh -c "id"'));
+  assert.ok(!commandAllowed(interpreterPolicy, 'zsh -c "id"'));
+  assert.ok(!commandAllowed(interpreterPolicy, 'dash -c "id"'));
+});
+
+test('interpreter eval denial cannot be dodged by obfuscating the payload — the flag literal alone triggers it', () => {
+  // A base64-encoded, whitespace-free payload decoded and executed at
+  // runtime: the flag token itself ("-e") is still argv[1] regardless of
+  // what the payload contains or how it's encoded, so the unconditional
+  // check still catches it before the allowlist is ever consulted.
+  const b64 = 'Y29uc29sZS5sb2cocHJvY2Vzcy5lbnYpOw==';
+  assert.ok(!commandAllowed(interpreterPolicy, `node -e eval(Buffer.from('${b64}','base64').toString())`));
+  assert.ok(!commandAllowed(interpreterPolicy, `python3 -c exec(__import__('base64').b64decode('${b64}'))`));
+});
+
+test('interpreter eval guard does not block legitimate script invocation', () => {
+  assert.ok(commandAllowed(interpreterPolicy, 'node script.js'));
+  assert.ok(commandAllowed(interpreterPolicy, 'python3 script.py'));
+  assert.ok(commandAllowed(interpreterPolicy, 'bash deploy.sh'));
+  // A flag-like value that happens to appear as an ARGUMENT to the script
+  // (not to the interpreter itself) is unaffected — only argv[1] itself is
+  // checked against the interpreter's own eval-flag pattern.
+  assert.ok(commandAllowed(interpreterPolicy, 'node script.js --extra'));
+});
+
+test('interpreter eval guard applies per-interpreter — a flag meaningless to one interpreter is not misapplied to another', () => {
+  // node's -p (print) is not a bash flag; bash's -c is not a node flag.
+  // The map is keyed per bin, so this cannot cross-contaminate.
+  assert.ok(!commandAllowed(interpreterPolicy, 'node -p 1'));
+  assert.ok(commandAllowed(interpreterPolicy, 'bash -p'), 'bash has no -p eval flag in the map — not a code-exec vector');
+});

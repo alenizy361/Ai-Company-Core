@@ -134,7 +134,10 @@ if [ "$WITH_SERVICES" = true ]; then
 # LIVEKIT_URL=
 # LIVEKIT_API_KEY=
 # LIVEKIT_API_SECRET=
-# OWNER_TOKEN=                   # required only when exposing beyond localhost
+# SIRA_HOST=                     # defaults to 127.0.0.1 (loopback-only); set to 0.0.0.0 to
+                                   #   reach SIRA from your phone/other devices on the LAN —
+                                   #   ALWAYS set OWNER_TOKEN above first when you do this
+# OWNER_TOKEN=                   # required before setting SIRA_HOST to anything but loopback
 # PORT=4600
 # SIRA_SELF_DEV=1                # let SIRA modify its own code/interface (dedicated machine)
 ENVT

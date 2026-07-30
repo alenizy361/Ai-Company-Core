@@ -1,6 +1,6 @@
 // The complete tool registry. A tool that is not here does not exist.
 import type { Tool } from './types.ts';
-import { readFileTool, writeFileTool, listDirTool, searchTool } from './impl/files.ts';
+import { readFileTool, writeFileTool, editFileTool, listDirTool, searchTool } from './impl/files.ts';
 import { runCommandTool } from './impl/command.ts';
 import { readArtifactTool, writeArtifactTool } from './impl/artifacts.ts';
 import { memorySearchTool, memoryWriteTool, taskNoteTool } from './impl/memory.ts';
@@ -8,6 +8,7 @@ import { memorySearchTool, memoryWriteTool, taskNoteTool } from './impl/memory.t
 const ALL: Tool[] = [
   readFileTool,
   writeFileTool,
+  editFileTool,
   listDirTool,
   searchTool,
   runCommandTool,

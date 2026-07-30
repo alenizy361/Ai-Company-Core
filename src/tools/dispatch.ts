@@ -22,6 +22,17 @@ export interface DispatchOutcome {
   approvalId?: string;
   /** The result fed back to the model (for denied: the structured denial). */
   result: ToolResult;
+  /**
+   * The FULLY RESOLVED args as dispatchTool checked them — for path tools
+   * this includes __abs/__rel (see resolveWorkspacePath below). Callers
+   * that resume execution after an approval decision (execute.ts,
+   * sdk-bridge.ts) MUST pass this back into executeToolCall rather than
+   * their own original args object: dispatchTool only ever mutates its own
+   * internal copy, never the caller's — reusing the original loses
+   * __abs/__rel and a write/edit tool would resolve `undefined` as its
+   * target path instead of the approved one.
+   */
+  args: Record<string, unknown>;
 }
 
 const PATH_TOOLS: Record<string, 'read' | 'write'> = {
@@ -29,6 +40,7 @@ const PATH_TOOLS: Record<string, 'read' | 'write'> = {
   list_dir: 'read',
   search: 'read',
   write_file: 'write',
+  edit_file: 'write',
 };
 
 function recordCall(
@@ -44,9 +56,9 @@ function recordCall(
   const id = ulid('tc');
   const publicArgs = Object.fromEntries(Object.entries(args).filter(([k]) => !k.startsWith('__')));
   db.run(
-    `INSERT INTO tool_calls (id, execution_id, task_id, agent_key, turn_index, tool, args_json, decision, denial_reason, status, started_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    id, ctx.executionId, ctx.taskId, ctx.agentKey, turnIndex, tool,
+    `INSERT INTO tool_calls (id, execution_id, task_id, conversation_id, agent_key, turn_index, tool, args_json, decision, denial_reason, status, started_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, ctx.executionId, ctx.taskId, ctx.conversationId, ctx.agentKey, turnIndex, tool,
     JSON.stringify(publicArgs).slice(0, 20000), decision, denialReason ?? null, status, Date.now(),
   );
   return id;
@@ -61,6 +73,7 @@ function deny(db: Db, ctx: ToolCtx, turnIndex: number, tool: string, args: Recor
   return {
     decision: 'denied',
     toolCallId,
+    args,
     result: { ok: false, error: `PERMISSION DENIED: ${reason}. This decision is enforced by the backend; adapt your approach within policy or fail honestly.` },
   };
 }
@@ -142,6 +155,7 @@ export async function dispatchTool(
       decision: 'approval_required',
       toolCallId,
       approvalId,
+      args,
       result: { ok: false, data: { status: 'approval_pending' }, error: 'owner approval required; execution paused until decided' },
     };
   }
@@ -163,7 +177,7 @@ export async function executeToolCall(
   if (!tool) {
     db.run(`UPDATE tool_calls SET status = 'failed', result_summary = ?, finished_at = ? WHERE id = ?`,
       'tool vanished from registry', Date.now(), toolCallId);
-    return { decision: 'allowed', toolCallId, result: { ok: false, error: 'tool missing' } };
+    return { decision: 'allowed', toolCallId, args, result: { ok: false, error: 'tool missing' } };
   }
 
   emitEvent(db, {
@@ -214,5 +228,5 @@ export async function executeToolCall(
     orgId: ctx.orgId, executionId: ctx.executionId, taskId: ctx.taskId, agentKey: ctx.agentKey,
     payload: { toolCallId, tool: toolName, ok: result.ok, error: result.error ?? null },
   });
-  return { decision: 'allowed', toolCallId, result };
+  return { decision: 'allowed', toolCallId, args, result };
 }
