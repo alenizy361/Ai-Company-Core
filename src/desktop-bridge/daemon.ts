@@ -27,6 +27,8 @@ import { dispatchAtspiAction } from './atspi/dispatch.ts';
 import { loadAtspiPolicy } from './atspi/policy.ts';
 import { resolveAtspiBackend } from './atspi/resolve.ts';
 import type { ResolvedAtspiBackend } from './atspi/backend.ts';
+import { getWorkflow } from './workflows/store.ts';
+import { replayWorkflow } from './workflows/replay.ts';
 
 export interface DesktopDaemonDeps {
   db: Db;
@@ -107,6 +109,31 @@ export function startDesktopDaemon(deps: DesktopDaemonDeps): { close: () => void
       { db: deps.db, cfg: deps.cfg, paths: deps.paths, orgId: deps.orgId, conversationId: b?.conversationId ?? null, agentKey: b?.agentKey ?? 'sira', artifactsDir: deps.paths.artifactsDir },
       policy, backend, params.name, b?.args ?? {},
     );
+    json(res, 200, result);
+  });
+
+  router.post('/workflows/:name/run', async ({ res, params, body }) => {
+    const b = body as { params?: Record<string, string>; agentKey?: string; conversationId?: string | null } | undefined;
+    const workflow = getWorkflow(deps.db, deps.orgId, params.name);
+    if (!workflow) return errorJson(res, 404, 'NOT_FOUND', `no saved workflow named "${params.name}"`);
+
+    const actionCtx = {
+      db: deps.db, cfg: deps.cfg, paths: deps.paths, orgId: deps.orgId,
+      conversationId: b?.conversationId ?? null, agentKey: b?.agentKey ?? 'sira', artifactsDir: deps.paths.artifactsDir,
+    };
+    const result = workflow.kind === 'browser'
+      ? await (async () => {
+          const policy = loadBrowserPolicy();
+          if (!policy.enabled) return { ok: false, error: 'the browser bridge is disabled — set "enabled": true in config/browser-bridge.json', stepsCompleted: 0, totalSteps: 0, results: [] };
+          const { backend } = await getBrowserBackend();
+          return replayWorkflow(deps.db, workflow, b?.params ?? {}, { browserActionCtx: actionCtx, browserPolicy: policy, browserBackend: backend });
+        })()
+      : await (async () => {
+          const policy = loadAtspiPolicy();
+          if (!policy.enabled) return { ok: false, error: 'the AT-SPI bridge is disabled — set "enabled": true in config/atspi-bridge.json', stepsCompleted: 0, totalSteps: 0, results: [] };
+          const { backend } = await getAtspiBackend();
+          return replayWorkflow(deps.db, workflow, b?.params ?? {}, { atspiActionCtx: actionCtx, atspiPolicy: policy, atspiBackend: backend });
+        })();
     json(res, 200, result);
   });
 

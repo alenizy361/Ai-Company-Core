@@ -24,6 +24,7 @@ import { buildBrowserToolServer, BROWSER_TOOL_NAMES } from '../tools/browser-too
 import { loadBrowserPolicy } from '../desktop-bridge/browser/policy.ts';
 import { buildAtspiToolServer, ATSPI_TOOL_NAMES } from '../tools/atspi-tools.ts';
 import { loadAtspiPolicy } from '../desktop-bridge/atspi/policy.ts';
+import { buildWorkflowToolServer, WORKFLOW_TOOL_NAMES } from '../tools/workflow-tools.ts';
 import { siraAppendPrompt } from './append-prompt.ts';
 import { SdkMessageRouter, type TurnEvent } from './router.ts';
 
@@ -198,12 +199,23 @@ export class SiraSession {
       ? ATSPI_TOOL_NAMES.map((t) => `mcp__${atspiServerKey}__${t}`)
       : [];
 
+    // Saved workflows only make sense once at least one semantic (non-
+    // coordinate) automation layer is on — a workflow can never contain a
+    // desktop_* step, so with neither browser nor atspi enabled nothing
+    // could ever be validly saved or run.
+    const workflowsEnabled = browserPolicy.enabled || atspiPolicy.enabled;
+    const workflowServerKey = 'sira-workflows';
+    const workflowCustomTools = workflowsEnabled
+      ? WORKFLOW_TOOL_NAMES.map((t) => `mcp__${workflowServerKey}__${t}`)
+      : [];
+
     const mcpServers = {
       ...subagentMcpServers,
       [parentServerKey]: parentToolServer.server,
       ...(desktopPolicy.enabled ? { [desktopServerKey]: buildDesktopToolServer({ cfg, agentKey: 'sira', conversationId }).server } : {}),
       ...(browserPolicy.enabled ? { [browserServerKey]: buildBrowserToolServer({ cfg, agentKey: 'sira', conversationId }).server } : {}),
       ...(atspiPolicy.enabled ? { [atspiServerKey]: buildAtspiToolServer({ cfg, agentKey: 'sira', conversationId }).server } : {}),
+      ...(workflowsEnabled ? { [workflowServerKey]: buildWorkflowToolServer({ db, cfg, orgId: cfg.orgId, agentKey: 'sira', conversationId }).server } : {}),
     };
 
     // The subprocess must NOT inherit a parent Claude session identity —
@@ -238,7 +250,7 @@ export class SiraSession {
       // not merely intercepted below. Read/Glob/Grep stay (read-only, path-
       // checked below); Task is delegation (also gated below); the parent's
       // own write/memory capability is its mcp__sira-parent__* tools.
-      tools: ['Read', 'Glob', 'Grep', 'Task', 'WebSearch', 'WebFetch', ...parentCustomTools, ...desktopCustomTools, ...browserCustomTools, ...atspiCustomTools],
+      tools: ['Read', 'Glob', 'Grep', 'Task', 'WebSearch', 'WebFetch', ...parentCustomTools, ...desktopCustomTools, ...browserCustomTools, ...atspiCustomTools, ...workflowCustomTools],
       includePartialMessages: true,
       ...(claudeBin.includes('/') && existsSync(claudeBin) ? { pathToClaudeCodeExecutable: claudeBin } : {}),
       maxTurns: 80,
