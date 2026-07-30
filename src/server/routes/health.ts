@@ -24,7 +24,7 @@ export function registerHealthRoute(
   getEngineInfo?: () => { name: string; reason: string },
   getBuildId?: () => string,
 ): void {
-  router.get('/api/health', ({ res }) => {
+  router.get('/api/health', async ({ res }) => {
     const now = Date.now();
     let dbOk = false;
     let dbError: string | null = null;
@@ -48,16 +48,37 @@ export function registerHealthRoute(
     // degraded to mock while this server still sees a healthy CLI).
     const workerAdapter = freshWorkers.find((w) => w.adapter);
 
+    // Chatterbox is opt-in and local — "configured" (CHATTERBOX_URL set) and
+    // "actually answering" are different facts, and reporting the former as
+    // the latter is exactly the kind of fake state this endpoint exists to
+    // rule out. A live /ready probe with a short timeout keeps this honest
+    // without materially slowing the health check.
+    let chatterboxLive = false;
+    if (process.env.CHATTERBOX_URL) {
+      try {
+        const probe = await fetch(`${process.env.CHATTERBOX_URL}/ready`, { signal: AbortSignal.timeout(800) });
+        chatterboxLive = probe.ok;
+      } catch {
+        chatterboxLive = false;
+      }
+    }
+
     const voiceCfg = loadVoiceConfig();
     const voiceProviders = {
       stt: process.env[voiceCfg.providers.stt.keyEnv] ? voiceCfg.providers.stt.primary : voiceCfg.providers.stt.fallback,
-      tts: process.env[voiceCfg.providers.tts.keyEnv]
-        ? voiceCfg.providers.tts.primary
-        : espeakBin() ? 'espeak' : voiceCfg.providers.tts.fallback,
+      // Real relay order (src/server/routes/voice-providers.ts): Chatterbox
+      // (local, opt-in) -> Fish Audio -> espeak-ng -> browser
+      // speechSynthesis. Report whichever tier will actually answer right now.
+      tts: chatterboxLive
+        ? 'chatterbox'
+        : process.env[voiceCfg.providers.tts.keyEnv]
+          ? voiceCfg.providers.tts.primary
+          : espeakBin() ? 'espeak' : voiceCfg.providers.tts.fallback,
       wake: process.env[voiceCfg.providers.wake.keyEnv] ? voiceCfg.providers.wake.primary : voiceCfg.providers.wake.fallback,
       transport: voiceCfg.providers.transport.keyEnvs.every((e) => process.env[e])
         ? voiceCfg.providers.transport.primary
         : voiceCfg.providers.transport.fallback,
+      ...(process.env.CHATTERBOX_URL ? { chatterboxConfigured: true, chatterboxLive } : {}),
     };
 
     const pendingApprovals = dbOk

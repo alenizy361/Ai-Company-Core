@@ -2,3 +2,5 @@ node_modules/
 var/
 *.log
 .DS_Store
+__pycache__/
+*.pyc

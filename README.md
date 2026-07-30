@@ -154,6 +154,26 @@ a provider interface; configuring keys switches the primary path
 | Wake word | none → push-to-talk | Porcupine — `PICOVOICE_ACCESS_KEY` |
 | Transport | in-page capture | LiveKit — `LIVEKIT_URL/API_KEY/API_SECRET` |
 
+### Local voice (Chatterbox Multilingual V3)
+
+The steadiest and cheapest voice option: a persistent local TTS service that
+loads the model once and answers every reply with one consistent voice.
+
+```bash
+# once you have a working chatterbox-tts Python environment:
+./scripts/install-chatterbox.sh --python-env /path/to/chatterbox-env [--voice /path/to/reference.wav]
+systemctl --user restart sira-api sira-worker   # picks up CHATTERBOX_URL
+```
+
+Check it actually connected — `/api/health` reports `chatterboxLive` from a
+live probe, not just whether the env var is set (a set-but-unreachable URL
+falls through to Fish/espeak silently, same as before):
+
+```bash
+curl -s http://127.0.0.1:8765/health          # the Chatterbox service itself
+curl -s localhost:4600/api/health | grep -o '"tts":"[a-z-]*"\|"chatterboxLive":[a-z]*'
+```
+
 Live integration of the keyed providers is the next milestone once
 credentials exist; the selection, labeling, and degradation paths are in
 place and tested. Roadmap after that: native mobile clients and an

@@ -1,0 +1,9 @@
+# FastAPI wrapper deps only — chatterbox-tts/torch/perth are assumed already
+# installed in the existing Python environment (per the integration spec).
+fastapi
+uvicorn[standard]
+pydantic
+soundfile
+psutil
+httpx
+pytest
