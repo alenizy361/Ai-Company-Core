@@ -169,6 +169,12 @@ Check it actually connected — `/api/health` reports `chatterboxLive` from a
 live probe, not just whether the env var is set (a set-but-unreachable URL
 falls through to Fish/espeak silently, same as before):
 
+Want Chatterbox as the *only* voice — never fall back to Fish/espeak, even
+on failure (a failed sentence stays silent; the text reply still arrives)?
+Add `CHATTERBOX_ONLY=1` to `~/.config/sira/env`. Fail-fast no longer applies
+in this mode (nothing to fall back to), so the per-request wait defaults to
+30s instead of 6s — override either with `CHATTERBOX_TIMEOUT_MS`.
+
 ```bash
 curl -s http://127.0.0.1:8765/health          # the Chatterbox service itself
 curl -s localhost:4600/api/health | grep -o '"tts":"[a-z-]*"\|"chatterboxLive":[a-z]*'

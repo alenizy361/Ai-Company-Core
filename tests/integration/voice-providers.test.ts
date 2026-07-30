@@ -279,6 +279,30 @@ test('Fish Audio: a single transient failure retries once and still answers with
   assert.equal(calls, 2, 'retried exactly once');
 });
 
+test('CHATTERBOX_ONLY: never falls back to Fish/espeak, even a hung/failed request stays silent (honest 503) instead of switching voices', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  let fishCalled = false;
+  const router = new Router();
+  registerVoiceProviderRoutes(router, env.db, {
+    env: { CHATTERBOX_URL: 'http://cb.local:8765', CHATTERBOX_ONLY: '1', FISH_AUDIO_API_KEY: 'fish-key' },
+    fetchImpl: async (url) => {
+      if (String(url).includes('cb.local')) return new Response('fail', { status: 500 });
+      fishCalled = true;
+      return new Response(new Blob([Buffer.from('FAKE_MP3')]), { status: 200, headers: { 'content-type': 'audio/mpeg' } });
+    },
+  });
+  const srv = await startServer(router);
+  t.after(srv.close);
+  const session = createVoiceSession(env.db, 'test', 900);
+
+  const res = await fetch(`${srv.base}/api/voice/tts?session=${session.id}&token=${session.token}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'chatterbox is down' }),
+  });
+  assert.equal(res.status, 503, 'no silent voice-switch — an honest error instead');
+  assert.ok(!fishCalled, 'fish is never even tried in CHATTERBOX_ONLY mode');
+});
+
 test('mintLivekitToken is deterministic and time-bounded', () => {
   const token = mintLivekitToken('k', 's', 'me', 'room', 60, 1000000);
   const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) as { exp: number; nbf: number };

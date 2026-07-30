@@ -191,6 +191,17 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
   // the highest-quality and zero-cost option, so it is tried first.
   const chatterboxUrl = env.CHATTERBOX_URL ?? '';
   const chatterboxEnabled = Boolean(chatterboxUrl) && env.CHATTERBOX_ENABLED !== 'off';
+  // Owner choice: Chatterbox as the ONLY voice, no Fish/espeak fallback at
+  // all — a failed sentence stays silent (the text reply still arrives)
+  // rather than ever switching to a different-sounding voice. Since there is
+  // nothing to fall back to, fail-fast no longer makes sense here — a
+  // genuinely slow-but-working CPU generation should be given the time to
+  // finish rather than being aborted into silence. CHATTERBOX_TIMEOUT_MS
+  // overrides either default explicitly (e.g. after measuring real RTF).
+  const chatterboxOnly = chatterboxEnabled && (env.CHATTERBOX_ONLY === '1' || env.CHATTERBOX_ONLY === 'on');
+  const chatterboxTimeoutMs = Number(env.CHATTERBOX_TIMEOUT_MS) > 0
+    ? Number(env.CHATTERBOX_TIMEOUT_MS)
+    : chatterboxOnly ? 30_000 : 6_000;
   const synthChatterbox = async (
     res: Parameters<typeof json>[0], text: string, lang: 'ar' | 'en', requestId: string,
   ): Promise<boolean> => {
@@ -208,11 +219,10 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
         }),
         // Chatterbox is CPU inference and can genuinely be slow (measured,
         // not assumed — real-time factor varies by machine). A voice
-        // assistant that goes silent for 15s per sentence LOOKS like it
-        // stopped responding. Fail fast and let the (already-fast) Fish/
-        // espeak fallback answer instead of making the owner wait on a
-        // slow local model turn after turn.
-        signal: AbortSignal.timeout(6_000),
+        // assistant that goes silent for too long LOOKS like it stopped
+        // responding. When a fallback exists, fail fast and let it answer;
+        // in CHATTERBOX_ONLY mode there is no fallback, so we wait longer.
+        signal: AbortSignal.timeout(chatterboxTimeoutMs),
       });
       if (!upstream.ok || !upstream.body) return false;
       res.writeHead(200, {
@@ -312,10 +322,15 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
     // Sticky selection: within one spoken reply, reuse whichever provider
     // answered the previous sentence instead of re-probing the whole chain
     // (re-probing is what made a single answer flip between voices).
+    // CHATTERBOX_ONLY overrides everything else: the owner explicitly chose
+    // one steady local voice over silence-avoidance — never let a Chatterbox
+    // failure fall through to a different-sounding voice.
     const sticky = sessionId ? getSticky(sessionId) : null;
-    const order: TtsProvider[] = sticky
-      ? [sticky, ...(['chatterbox', 'fish-audio', 'espeak'] as TtsProvider[]).filter((p) => p !== sticky)]
-      : ['chatterbox', 'fish-audio', 'espeak'];
+    const order: TtsProvider[] = chatterboxOnly
+      ? ['chatterbox']
+      : sticky
+        ? [sticky, ...(['chatterbox', 'fish-audio', 'espeak'] as TtsProvider[]).filter((p) => p !== sticky)]
+        : ['chatterbox', 'fish-audio', 'espeak'];
 
     for (const provider of order) {
       if (provider === 'chatterbox') {
@@ -333,6 +348,10 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
         if (sessionId) setSticky(sessionId, 'espeak');
         return synthLocal(res, text, lang, provider !== order[0]);
       }
+    }
+    if (chatterboxOnly) {
+      return errorJson(res, 503, 'PROVIDER_ERROR',
+        'Chatterbox did not answer in time and CHATTERBOX_ONLY disables the Fish/espeak fallback — the text reply still arrived, this sentence just has no audio');
     }
     return errorJson(res, 503, 'PROVIDER_NOT_CONFIGURED',
       'no server voice: run the local Chatterbox service, set FISH_AUDIO_API_KEY, or install espeak-ng (sudo apt install espeak-ng); the client falls back to speechSynthesis');
