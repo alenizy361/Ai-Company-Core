@@ -13,7 +13,7 @@ import { makeEnv } from '../helpers/fixtures.ts';
 import { Router, errorJson } from '../../src/server/router.ts';
 import { registerConverseRoutes } from '../../src/server/routes/converse.ts';
 import { MockAdapter } from '../../src/adapters/mock.ts';
-import { SiraManager } from '../../src/sira/session.ts';
+import { SiraManager, SiraSession } from '../../src/sira/session.ts';
 import { cliAvailable } from '../../src/adapters/select.ts';
 import { loadPaths } from '../../src/shared/config.ts';
 
@@ -88,4 +88,89 @@ test('LIVE: SDK-backed converse — real tool, streamed reply, same-session foll
   // Both turns persisted as ordinary conversation messages.
   const rows = env.db.all<{ role: string }>('SELECT role FROM messages WHERE conversation_id = ? ORDER BY created_at', conversationId);
   assert.deepEqual(rows.map((r) => r.role), ['user', 'assistant', 'user', 'assistant']);
+});
+
+/**
+ * Builds a real SiraSession WITHOUT running its constructor (no CLI
+ * subprocess) — used only to pre-populate a SiraManager's session map as the
+ * "existing" entry these tests replace. Only the fields the fix under test
+ * actually reads/writes are set. The REPLACEMENT session that each test
+ * asserts on is always a genuinely, fully constructed SiraSession — that is
+ * the whole point of these being live tests rather than tests/unit ones.
+ */
+function fakeExistingSession(opts: { conversationId: string; delegationEnabled: boolean; failed?: boolean }): SiraSession {
+  const session = Object.create(SiraSession.prototype) as SiraSession;
+  const s = session as unknown as Record<string, unknown>;
+  s.conversationId = opts.conversationId;
+  s.db = { run: () => {} };
+  s.q = { close: () => {}, interrupt: async () => {} };
+  s.input = { push: () => {}, end: () => {} };
+  s.activeTurn = null;
+  s.turnChain = Promise.resolve();
+  s.failed = opts.failed ? 'simulated crash' : null;
+  s.lastMessageAtMs = Date.now() - 999_999;
+  session.delegationEnabled = opts.delegationEnabled;
+  return session;
+}
+
+test('LIVE: SiraManager cap eviction — getOrCreate() evicts the most-idle turn-inactive session before inserting past the cap', { timeout: 60000 }, async (t) => {
+  if (!AUTH_OK) {
+    t.skip('no Claude auth — live SDK test skipped');
+    return;
+  }
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  env.cfg.maxSessions = 1;
+  const manager = new SiraManager(env.db, env.cfg, env.paths);
+  t.after(() => manager.closeAll());
+
+  const sessions = (manager as unknown as { sessions: Map<string, SiraSession> }).sessions;
+  sessions.set('cnv_stale', fakeExistingSession({ conversationId: 'cnv_stale', delegationEnabled: true }));
+  assert.equal(manager.get('cnv_stale')?.conversationId, 'cnv_stale');
+
+  const created = manager.getOrCreate('cnv_new', null);
+
+  assert.equal(manager.get('cnv_stale'), undefined, 'the pre-existing stale session was evicted to make room under the cap');
+  assert.equal(manager.get('cnv_new'), created, 'the new conversation was still created successfully — a full cap never rejects a legitimate new conversation');
+  assert.equal(created.isFailed, false, 'the newly constructed replacement session is a real, live session');
+});
+
+test('LIVE: SiraManager.getOrCreate() heal branch preserves the owner\'s last delegationEnabled setting across a crashed-session rebuild', { timeout: 60000 }, async (t) => {
+  if (!AUTH_OK) {
+    t.skip('no Claude auth — live SDK test skipped');
+    return;
+  }
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const manager = new SiraManager(env.db, env.cfg, env.paths);
+  t.after(() => manager.closeAll());
+
+  const conversationId = 'cnv_heal_test';
+  const sessions = (manager as unknown as { sessions: Map<string, SiraSession> }).sessions;
+  const original = fakeExistingSession({ conversationId, delegationEnabled: false, failed: true });
+  sessions.set(conversationId, original);
+
+  const healed = manager.getOrCreate(conversationId, null);
+
+  assert.notEqual(healed, original, 'a genuinely new session replaced the failed one');
+  assert.equal(healed.delegationEnabled, false, 'the owner had delegation OFF — the rebuilt session must not silently revert to the class default of true');
+});
+
+test('LIVE: SiraManager.recreate() preserves the owner\'s last delegationEnabled setting across a forced no-resume rebuild', { timeout: 60000 }, async (t) => {
+  if (!AUTH_OK) {
+    t.skip('no Claude auth — live SDK test skipped');
+    return;
+  }
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const manager = new SiraManager(env.db, env.cfg, env.paths);
+  t.after(() => manager.closeAll());
+
+  const conversationId = 'cnv_recreate_test';
+  const sessions = (manager as unknown as { sessions: Map<string, SiraSession> }).sessions;
+  sessions.set(conversationId, fakeExistingSession({ conversationId, delegationEnabled: false }));
+
+  const recreated = manager.recreate(conversationId, null);
+
+  assert.equal(recreated.delegationEnabled, false, 'recreate() constructs a brand-new SiraSession (default true) — the owner\'s prior choice must still be reapplied');
 });

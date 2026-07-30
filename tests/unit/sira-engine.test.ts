@@ -4,13 +4,14 @@
 // while preserving prose — including fences split across stream deltas.
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
+import { mkdirSync, writeFileSync, symlinkSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeEnv, activateAgents } from '../helpers/fixtures.ts';
 import { SdkMessageRouter } from '../../src/sira/router.ts';
 import { SpeakableStream, speakableSentence } from '../../src/sira/speakable.ts';
 import { buildSiraAgents, SIRA_AGENT_KEYS } from '../../src/sira/agents.ts';
 import { isSensitivePath, isContainedIn } from '../../src/sira/session.ts';
+import { loadAgentsConfig, loadPermissions, REPO_ROOT } from '../../src/shared/config.ts';
 
 test('router: init -> session id captured and persisted event emitted', (t) => {
   const env = makeEnv();
@@ -123,6 +124,25 @@ test('agent definitions: ONE activation truth — only roster-active agents exis
   for (const def of Object.values(agents)) {
     assert.ok(def.description.length > 20 && def.prompt.includes('never speak to the owner'));
   }
+});
+
+test('agent identity: config/agents.json, SIRA_AGENT_KEYS, prompts/agents/*.md, and permissions.json all name the same roster', () => {
+  // The two INTENTIONAL deltas (see src/sira/agents.ts's ROLES comment):
+  // SIRA itself is the orchestrator, so 'ceo' has no SDK subagent; and
+  // permissions.json additionally carries 'sira', the parent session's own
+  // policy — not a roster member.
+  const CEO_KEY = 'ceo';
+  const SIRA_PSEUDO_ROLE = 'sira';
+
+  const roster = new Set(loadAgentsConfig().map((a) => a.key));
+  const nonCeoRoster = new Set([...roster].filter((key) => key !== CEO_KEY));
+  assert.deepEqual(new Set(SIRA_AGENT_KEYS), nonCeoRoster, 'SDK agent keys are exactly the roster minus ceo');
+
+  const promptKeys = new Set(readdirSync(join(REPO_ROOT, 'prompts', 'agents')).map((f) => f.replace(/\.md$/, '')));
+  assert.deepEqual(promptKeys, roster, 'every roster role — including ceo — has a prompt file, and no stray prompt files exist');
+
+  const permissionKeys = new Set(Object.keys(loadPermissions()));
+  assert.deepEqual(permissionKeys, new Set([...roster, SIRA_PSEUDO_ROLE]), 'permissions.json covers every roster role, plus only the sira pseudo-role');
 });
 
 // Phase 2 security: native Read/Glob/Grep bypass dispatchTool entirely (SDK

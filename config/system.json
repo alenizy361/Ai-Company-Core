@@ -16,6 +16,8 @@
   "maxPlanSteps": 30,
   "toolTimeoutMs": 120000,
   "toolResultInlineLimit": 8000,
+  "sessionIdleMs": 3600000,
+  "maxSessions": 50,
   "modelTiers": {
     "fast": "claude-haiku-4-5-20251001",
     "balanced": "claude-sonnet-5",

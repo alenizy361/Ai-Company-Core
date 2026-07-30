@@ -480,8 +480,6 @@ async function runSiraTurn(deps: {
   sse(res, 'state', { state: 'thinking' });
 
   const session = sira.getOrCreate(conversationId, replyLang);
-  // Runtime toggle: the canUseTool gate reads this flag on every Task call.
-  session.delegationEnabled = deps.delegate;
   const speakable = new SpeakableStream();
   const sentences = new SentenceBuffer();
   const requestId = ulid('mr');
@@ -515,7 +513,7 @@ async function runSiraTurn(deps: {
   let usage = { input: 0, output: 0 };
   let errorMessage: string | null = null;
   try {
-    for await (const event of session.send(turnText)) {
+    for await (const event of session.send(turnText, deps.delegate)) {
       if (event.kind === 'delta') {
         sse(res, 'delta', { text: event.text });
         emitSpeakable(speakable.push(event.text));

@@ -34,6 +34,10 @@ export interface SystemConfig {
   toolResultInlineLimit: number;
   modelTiers: Record<string, string>;
   converseTier: string;
+  /** SiraManager: a session with no active turn idle longer than this is evicted (closed + unmapped). */
+  sessionIdleMs: number;
+  /** SiraManager: cap on live SiraSession instances (each holds a CLI subprocess) before the most-idle turn-inactive one is evicted to make room. */
+  maxSessions: number;
 }
 
 export interface Paths {
@@ -66,6 +70,8 @@ export function loadSystemConfig(): SystemConfig {
     ['SIRA_STALE_WORKER_MS', 'staleWorkerMs'],
     ['SIRA_APPROVAL_TIMEOUT_MS', 'approvalTimeoutMs'],
     ['SIRA_MAX_WALL_CLOCK_MS', 'maxWallClockMs'],
+    ['SIRA_SESSION_IDLE_MS', 'sessionIdleMs'],
+    ['SIRA_MAX_SESSIONS', 'maxSessions'],
   ] as const) {
     if (process.env[env]) (cfg as unknown as Record<string, number>)[key] = Number(process.env[env]);
   }

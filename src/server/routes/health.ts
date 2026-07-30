@@ -7,7 +7,7 @@ import { json } from '../router.ts';
 import type { SseHub } from '../sse.ts';
 import type { SystemConfig } from '../../shared/config.ts';
 import { loadVoiceConfig } from '../../shared/config.ts';
-import { espeakBin } from './voice-providers.ts';
+import { espeakBin, fishConfigured, chatterboxState } from './voice-providers.ts';
 
 export interface AdapterInfo {
   name: string;
@@ -48,15 +48,19 @@ export function registerHealthRoute(
     // degraded to mock while this server still sees a healthy CLI).
     const workerAdapter = freshWorkers.find((w) => w.adapter);
 
-    // Chatterbox is opt-in and local — "configured" (CHATTERBOX_URL set) and
-    // "actually answering" are different facts, and reporting the former as
-    // the latter is exactly the kind of fake state this endpoint exists to
-    // rule out. A live /ready probe with a short timeout keeps this honest
-    // without materially slowing the health check.
+    // Chatterbox is opt-in and local — "configured" (CHATTERBOX_URL set,
+    // CHATTERBOX_ENABLED not 'off') and "actually answering" are different
+    // facts, and reporting the former as the latter is exactly the kind of
+    // fake state this endpoint exists to rule out. A live /ready probe with a
+    // short timeout keeps this honest without materially slowing the health
+    // check. Gated on chatterboxState().enabled, not just CHATTERBOX_URL, so
+    // a service that is live but CHATTERBOX_ENABLED=off (never actually used
+    // by /api/voice/tts) is not reported as the active voice either.
+    const chatterbox = chatterboxState(process.env);
     let chatterboxLive = false;
-    if (process.env.CHATTERBOX_URL) {
+    if (chatterbox.enabled) {
       try {
-        const probe = await fetch(`${process.env.CHATTERBOX_URL}/ready`, { signal: AbortSignal.timeout(800) });
+        const probe = await fetch(`${chatterbox.url}/ready`, { signal: AbortSignal.timeout(800) });
         chatterboxLive = probe.ok;
       } catch {
         chatterboxLive = false;
@@ -69,16 +73,20 @@ export function registerHealthRoute(
       // Real relay order (src/server/routes/voice-providers.ts): Chatterbox
       // (local, opt-in) -> Fish Audio -> espeak-ng -> browser
       // speechSynthesis. Report whichever tier will actually answer right now.
+      // CHATTERBOX_ONLY means a Chatterbox outage is total silence, not a
+      // fallback to Fish/espeak — reporting either of those here would be a lie.
       tts: chatterboxLive
         ? 'chatterbox'
-        : process.env[voiceCfg.providers.tts.keyEnv]
-          ? voiceCfg.providers.tts.primary
-          : espeakBin() ? 'espeak' : voiceCfg.providers.tts.fallback,
+        : chatterbox.only
+          ? 'none'
+          : fishConfigured(process.env)
+            ? voiceCfg.providers.tts.primary
+            : espeakBin() ? 'espeak' : voiceCfg.providers.tts.fallback,
       wake: process.env[voiceCfg.providers.wake.keyEnv] ? voiceCfg.providers.wake.primary : voiceCfg.providers.wake.fallback,
       transport: voiceCfg.providers.transport.keyEnvs.every((e) => process.env[e])
         ? voiceCfg.providers.transport.primary
         : voiceCfg.providers.transport.fallback,
-      ...(process.env.CHATTERBOX_URL ? { chatterboxConfigured: true, chatterboxLive } : {}),
+      ...(process.env.CHATTERBOX_URL ? { chatterboxConfigured: chatterbox.enabled, chatterboxLive } : {}),
     };
 
     const pendingApprovals = dbOk

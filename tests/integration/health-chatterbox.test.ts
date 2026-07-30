@@ -76,3 +76,107 @@ test('health: CHATTERBOX_URL pointing at a live service is reported as the activ
     if (prev === undefined) delete process.env.CHATTERBOX_URL; else process.env.CHATTERBOX_URL = prev;
   }
 });
+
+test('health: FISH_API_KEY alone (no FISH_AUDIO_API_KEY) is reported as fish-audio', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const router = new Router();
+  registerHealthRoute(router, env.db, hubStub, env.cfg, () => ({ name: 'mock', reason: 'test' }));
+  const srv = await startServer(router);
+  t.after(srv.close);
+
+  const prevFishKey = process.env.FISH_API_KEY;
+  const prevFishAudioKey = process.env.FISH_AUDIO_API_KEY;
+  const prevChatterboxUrl = process.env.CHATTERBOX_URL;
+  process.env.FISH_API_KEY = 'test-key';
+  delete process.env.FISH_AUDIO_API_KEY;
+  delete process.env.CHATTERBOX_URL;
+  try {
+    const health = await (await fetch(`${srv.base}/api/health`)).json() as { voiceProviders: { tts: string } };
+    assert.equal(health.voiceProviders.tts, 'fish-audio');
+  } finally {
+    if (prevFishKey === undefined) delete process.env.FISH_API_KEY; else process.env.FISH_API_KEY = prevFishKey;
+    if (prevFishAudioKey === undefined) delete process.env.FISH_AUDIO_API_KEY; else process.env.FISH_AUDIO_API_KEY = prevFishAudioKey;
+    if (prevChatterboxUrl === undefined) delete process.env.CHATTERBOX_URL; else process.env.CHATTERBOX_URL = prevChatterboxUrl;
+  }
+});
+
+test('health: legacy FISH_AUDIO_API_KEY alone is still reported as fish-audio', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const router = new Router();
+  registerHealthRoute(router, env.db, hubStub, env.cfg, () => ({ name: 'mock', reason: 'test' }));
+  const srv = await startServer(router);
+  t.after(srv.close);
+
+  const prevFishKey = process.env.FISH_API_KEY;
+  const prevFishAudioKey = process.env.FISH_AUDIO_API_KEY;
+  const prevChatterboxUrl = process.env.CHATTERBOX_URL;
+  delete process.env.FISH_API_KEY;
+  process.env.FISH_AUDIO_API_KEY = 'legacy-key';
+  delete process.env.CHATTERBOX_URL;
+  try {
+    const health = await (await fetch(`${srv.base}/api/health`)).json() as { voiceProviders: { tts: string } };
+    assert.equal(health.voiceProviders.tts, 'fish-audio');
+  } finally {
+    if (prevFishKey === undefined) delete process.env.FISH_API_KEY; else process.env.FISH_API_KEY = prevFishKey;
+    if (prevFishAudioKey === undefined) delete process.env.FISH_AUDIO_API_KEY; else process.env.FISH_AUDIO_API_KEY = prevFishAudioKey;
+    if (prevChatterboxUrl === undefined) delete process.env.CHATTERBOX_URL; else process.env.CHATTERBOX_URL = prevChatterboxUrl;
+  }
+});
+
+test('health: CHATTERBOX_ONLY with Chatterbox down reports tts as none, not fish-audio', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const router = new Router();
+  registerHealthRoute(router, env.db, hubStub, env.cfg, () => ({ name: 'mock', reason: 'test' }));
+  const srv = await startServer(router);
+  t.after(srv.close);
+
+  const prevUrl = process.env.CHATTERBOX_URL;
+  const prevOnly = process.env.CHATTERBOX_ONLY;
+  const prevFishAudioKey = process.env.FISH_AUDIO_API_KEY;
+  process.env.CHATTERBOX_URL = 'http://127.0.0.1:1'; // nothing listens on port 1
+  process.env.CHATTERBOX_ONLY = '1';
+  process.env.FISH_AUDIO_API_KEY = 'test-key';
+  try {
+    const health = await (await fetch(`${srv.base}/api/health`)).json() as { voiceProviders: { tts: string } };
+    assert.equal(health.voiceProviders.tts, 'none', 'CHATTERBOX_ONLY means an outage is silence, not a Fish fallback');
+  } finally {
+    if (prevUrl === undefined) delete process.env.CHATTERBOX_URL; else process.env.CHATTERBOX_URL = prevUrl;
+    if (prevOnly === undefined) delete process.env.CHATTERBOX_ONLY; else process.env.CHATTERBOX_ONLY = prevOnly;
+    if (prevFishAudioKey === undefined) delete process.env.FISH_AUDIO_API_KEY; else process.env.FISH_AUDIO_API_KEY = prevFishAudioKey;
+  }
+});
+
+test('health: CHATTERBOX_ENABLED=off never reports chatterbox even when the service is live', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const fakeChatterbox = createServer((req, res) => {
+    if (req.url === '/ready') { json(res, 200, { ready: true }); return; }
+    errorJson(res, 404, 'NOT_FOUND', 'no route');
+  });
+  await new Promise<void>((resolve) => fakeChatterbox.listen(0, resolve));
+  t.after(() => fakeChatterbox.close());
+  const fakePort = (fakeChatterbox.address() as AddressInfo).port;
+
+  const router = new Router();
+  registerHealthRoute(router, env.db, hubStub, env.cfg, () => ({ name: 'mock', reason: 'test' }));
+  const srv = await startServer(router);
+  t.after(srv.close);
+
+  const prevUrl = process.env.CHATTERBOX_URL;
+  const prevEnabled = process.env.CHATTERBOX_ENABLED;
+  process.env.CHATTERBOX_URL = `http://127.0.0.1:${fakePort}`;
+  process.env.CHATTERBOX_ENABLED = 'off';
+  try {
+    const health = await (await fetch(`${srv.base}/api/health`)).json() as {
+      voiceProviders: { tts: string; chatterboxConfigured?: boolean; chatterboxLive?: boolean };
+    };
+    assert.notEqual(health.voiceProviders.tts, 'chatterbox', 'disabled service is never actually used by /api/voice/tts');
+    assert.equal(health.voiceProviders.chatterboxConfigured, false, 'CHATTERBOX_ENABLED=off means not actually enabled');
+  } finally {
+    if (prevUrl === undefined) delete process.env.CHATTERBOX_URL; else process.env.CHATTERBOX_URL = prevUrl;
+    if (prevEnabled === undefined) delete process.env.CHATTERBOX_ENABLED; else process.env.CHATTERBOX_ENABLED = prevEnabled;
+  }
+});

@@ -73,6 +73,18 @@ export function espeakBin(): string | null {
   return null;
 }
 
+/** FISH_API_KEY is canonical; FISH_AUDIO_API_KEY remains accepted for existing deployments. */
+export function fishConfigured(env: Record<string, string | undefined> = process.env): boolean {
+  return Boolean(env.FISH_API_KEY ?? env.FISH_AUDIO_API_KEY);
+}
+
+export function chatterboxState(env: Record<string, string | undefined> = process.env): { url: string; enabled: boolean; only: boolean } {
+  const url = env.CHATTERBOX_URL ?? '';
+  const enabled = Boolean(url) && env.CHATTERBOX_ENABLED !== 'off';
+  const only = enabled && (env.CHATTERBOX_ONLY === '1' || env.CHATTERBOX_ONLY === 'on');
+  return { url, enabled, only };
+}
+
 function readRawBody(req: IncomingMessage, limit: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -190,8 +202,6 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
   // (see docs — one model instance, one custom voice, CPU-only) reached at
   // CHATTERBOX_URL (default http://127.0.0.1:8765). When it answers, it is
   // the highest-quality and zero-cost option, so it is tried first.
-  const chatterboxUrl = env.CHATTERBOX_URL ?? '';
-  const chatterboxEnabled = Boolean(chatterboxUrl) && env.CHATTERBOX_ENABLED !== 'off';
   // Owner choice: Chatterbox as the ONLY voice, no Fish/espeak fallback at
   // all — a failed sentence stays silent (the text reply still arrives)
   // rather than ever switching to a different-sounding voice. Since there is
@@ -199,7 +209,7 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
   // genuinely slow-but-working CPU generation should be given the time to
   // finish rather than being aborted into silence. CHATTERBOX_TIMEOUT_MS
   // overrides either default explicitly (e.g. after measuring real RTF).
-  const chatterboxOnly = chatterboxEnabled && (env.CHATTERBOX_ONLY === '1' || env.CHATTERBOX_ONLY === 'on');
+  const { url: chatterboxUrl, enabled: chatterboxEnabled, only: chatterboxOnly } = chatterboxState(env);
   const chatterboxTimeoutMs = Number(env.CHATTERBOX_TIMEOUT_MS) > 0
     ? Number(env.CHATTERBOX_TIMEOUT_MS)
     : chatterboxOnly ? 30_000 : 6_000;
@@ -282,8 +292,7 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
 
   router.post('/api/voice/tts', async ({ res, query, body }) => {
     if (!requireSession(query, res)) return;
-    // FISH_API_KEY is the canonical name; FISH_AUDIO_API_KEY remains accepted
-    // for existing deployments. The key never leaves the server.
+    // The key never leaves the server.
     const key = env.FISH_API_KEY ?? env.FISH_AUDIO_API_KEY;
     const b = body as { text?: string; lang?: string } | undefined;
     const text = b?.text;

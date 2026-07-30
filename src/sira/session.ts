@@ -127,7 +127,7 @@ export class SiraSession {
   private activeTurn: TurnStream | null = null;
   private turnChain: Promise<unknown> = Promise.resolve();
   private failed: string | null = null;
-  private lastMessageAt = Date.now();
+  private lastMessageAtMs = Date.now();
   /** Owner toggle: when false, the Task tool is DENIED at runtime — SIRA answers itself. */
   delegationEnabled = true;
 
@@ -252,10 +252,23 @@ export class SiraSession {
     return this.failed !== null;
   }
 
+  /** Wall-clock time of the last SDK message OR queued turn — SiraManager's
+   *  idle sweep and cap eviction both read this to find the least-recently-
+   *  used turn-inactive session. */
+  get lastMessageAt(): number {
+    return this.lastMessageAtMs;
+  }
+
+  /** True while a turn is being processed — SiraManager must never evict a
+   *  session mid-turn, no matter how idle its lastMessageAt looks. */
+  get hasActiveTurn(): boolean {
+    return this.activeTurn !== null;
+  }
+
   private async pump(): Promise<void> {
     try {
       for await (const msg of this.q) {
-        this.lastMessageAt = Date.now();
+        this.lastMessageAtMs = Date.now();
         const events = this.router.route(msg as unknown as Record<string, unknown>);
         if (this.router.sdkSessionId) this.persistSessionRow();
         for (const event of events) {
@@ -333,8 +346,18 @@ export class SiraSession {
   /**
    * Send one owner turn into the persistent session; returns the live event
    * stream for that turn. Turns are strictly serialized per session.
+   *
+   * `delegationEnabled`, when given, is applied INSIDE the queued turnChain
+   * callback — immediately before the turn's input is pushed — not at the
+   * call site. Setting it synchronously before send() (the old behavior)
+   * raced: a second overlapping send() for the same conversation could
+   * overwrite the flag before the first turn's canUseTool check ever ran.
+   * Serializing the write through turnChain ties it to the exact turn it
+   * belongs to. Omit it to leave the session's current value untouched
+   * (internal callers like the completion bridge don't have an owner-facing
+   * toggle to assert).
    */
-  send(text: string): AsyncGenerator<TurnEvent> {
+  send(text: string, delegationEnabled?: boolean): AsyncGenerator<TurnEvent> {
     const turn = new TurnStream();
     this.turnChain = this.turnChain.then(async () => {
       if (this.failed) {
@@ -342,8 +365,9 @@ export class SiraSession {
         turn.finish();
         return;
       }
+      if (delegationEnabled !== undefined) this.delegationEnabled = delegationEnabled;
       this.activeTurn = turn;
-      this.lastMessageAt = Date.now();
+      this.lastMessageAtMs = Date.now();
       this.input.push({
         type: 'user',
         message: { role: 'user', content: text },
@@ -359,7 +383,7 @@ export class SiraSession {
             resolve();
             return;
           }
-          if (Date.now() - this.lastMessageAt > 900000) {
+          if (Date.now() - this.lastMessageAtMs > 900000) {
             turn.emit({ kind: 'error', message: 'no response from the model runtime for 15 minutes — turn aborted' });
             turn.finish();
             this.activeTurn = null;
@@ -386,6 +410,9 @@ export class SiraSession {
   close(): void {
     this.input.end();
     try {
+      this.q.close();
+    } catch { /* already closed/dead — the point was to terminate it, not to report on it */ }
+    try {
       this.db.run(`UPDATE sdk_sessions SET state = 'closed', last_active_at = ? WHERE conversation_id = ?`, Date.now(), this.conversationId);
     } catch { /* shutdown path — the db may already be closed */ }
   }
@@ -409,6 +436,7 @@ export class SiraManager {
 
   getOrCreate(conversationId: string, replyLang: 'en' | 'ar' | null): SiraSession {
     const existing = this.sessions.get(conversationId);
+    let preservedDelegation: boolean | undefined;
     if (existing) {
       // A session that failed mid-process (e.g. the CLI subprocess crashed)
       // previously stayed cached forever — every future turn for this
@@ -419,9 +447,14 @@ export class SiraManager {
       // recreate() below is the stronger escalation for a resume that is
       // itself the problem).
       if (!existing.isFailed) return existing;
+      // The owner's last explicit delegation choice must survive the rebuild
+      // — a fresh SiraSession otherwise defaults back to true, silently
+      // reverting a setting the owner turned off.
+      preservedDelegation = existing.delegationEnabled;
       existing.close();
       this.sessions.delete(conversationId);
     }
+    if (this.sessions.size >= this.cfg.maxSessions) this.evictMostIdle();
     const stored = this.db.get<{ sdk_session_id: string | null }>(
       'SELECT sdk_session_id FROM sdk_sessions WHERE conversation_id = ?', conversationId,
     );
@@ -429,8 +462,37 @@ export class SiraManager {
       resume: stored?.sdk_session_id ?? undefined,
       replyLang,
     });
+    if (preservedDelegation !== undefined) session.delegationEnabled = preservedDelegation;
     this.sessions.set(conversationId, session);
     return session;
+  }
+
+  /** Evict the single most-idle turn-inactive session to make room under the
+   *  cap — never a session mid-turn. A no-op (never rejects a new
+   *  conversation) if every cached session currently has an active turn. */
+  private evictMostIdle(): void {
+    let target: [string, SiraSession] | null = null;
+    for (const entry of this.sessions) {
+      const session = entry[1];
+      if (session.hasActiveTurn) continue;
+      if (!target || session.lastMessageAt < target[1].lastMessageAt) target = entry;
+    }
+    if (!target) return;
+    target[1].close();
+    this.sessions.delete(target[0]);
+  }
+
+  /** Evict every turn-inactive session idle longer than `idleMs` — a live
+   *  session holds a real CLI subprocess, so an unbounded server lifetime
+   *  with no eviction is an unbounded process/memory leak. */
+  sweepIdle(idleMs: number): void {
+    const now = Date.now();
+    for (const [conversationId, session] of this.sessions) {
+      if (session.hasActiveTurn) continue;
+      if (now - session.lastMessageAt <= idleMs) continue;
+      session.close();
+      this.sessions.delete(conversationId);
+    }
   }
 
   /**
@@ -441,10 +503,13 @@ export class SiraManager {
    */
   recreate(conversationId: string, replyLang: 'en' | 'ar' | null): SiraSession {
     const existing = this.sessions.get(conversationId);
+    const preservedDelegation = existing?.delegationEnabled;
     existing?.close();
     this.sessions.delete(conversationId);
     this.db.run(`UPDATE sdk_sessions SET sdk_session_id = NULL WHERE conversation_id = ?`, conversationId);
-    return this.getOrCreate(conversationId, replyLang);
+    const session = this.getOrCreate(conversationId, replyLang);
+    if (preservedDelegation !== undefined) session.delegationEnabled = preservedDelegation;
+    return session;
   }
 
   get(conversationId: string): SiraSession | undefined {

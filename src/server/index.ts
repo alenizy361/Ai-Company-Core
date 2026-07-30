@@ -118,6 +118,15 @@ async function tickCompletionSweep(): Promise<void> {
 const completionSweepInterval = setInterval(() => void tickCompletionSweep(), 5000);
 void tickCompletionSweep();
 
+// Idle SiraSession eviction: each live session holds a real CLI subprocess,
+// so an unbounded server lifetime with no eviction is an unbounded
+// process/memory leak (never evicts a session mid-turn — see sweepIdle).
+function tickSessionSweep(): void {
+  if (!sira) return;
+  sira.sweepIdle(cfg.sessionIdleMs);
+}
+const sessionSweepInterval = setInterval(tickSessionSweep, 5000);
+
 const ownerToken = process.env.OWNER_TOKEN ?? '';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
 
@@ -163,6 +172,7 @@ server.listen(cfg.port, cfg.host, () => {
 
 function shutdown(): void {
   clearInterval(completionSweepInterval);
+  clearInterval(sessionSweepInterval);
   hub.stop();
   sira?.closeAll();
   server.close(() => {
