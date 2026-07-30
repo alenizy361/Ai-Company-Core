@@ -22,6 +22,7 @@ export function registerHealthRoute(
   cfg: SystemConfig,
   getAdapterInfo: () => AdapterInfo,
   getEngineInfo?: () => { name: string; reason: string },
+  getBuildId?: () => string,
 ): void {
   router.get('/api/health', ({ res }) => {
     const now = Date.now();
@@ -84,6 +85,8 @@ export function registerHealthRoute(
         : getAdapterInfo(),
       // Which conversation engine answers /api/converse (agent-sdk | legacy).
       engine: getEngineInfo?.() ?? null,
+      // Interface build fingerprint — the client self-reloads when it changes.
+      build: getBuildId?.() ?? null,
       voiceProviders,
       pendingApprovals,
     });

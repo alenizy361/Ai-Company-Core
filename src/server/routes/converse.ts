@@ -106,7 +106,7 @@ export function registerConverseRoutes(
   router.post('/api/converse', async ({ res, body }) => {
     const b = body as {
       conversationId?: string; text?: string; modality?: 'voice' | 'text'; lang?: string;
-      replyLang?: string; voiceSessionId?: string; voiceToken?: string;
+      replyLang?: string; delegate?: boolean; voiceSessionId?: string; voiceToken?: string;
     } | undefined;
     if (!b?.text || typeof b.text !== 'string' || !b.text.trim()) {
       return errorJson(res, 400, 'BAD_REQUEST', 'text is required');
@@ -149,7 +149,10 @@ export function registerConverseRoutes(
     // The legacy contract path below remains the honest fallback (mock mode /
     // no real Claude auth).
     if (sira) {
-      await runSiraTurn({ db, cfg, res, sira, conversationId, text: b.text, modality, replyLang, voiceSession, lang: b.lang ?? '' });
+      await runSiraTurn({
+        db, cfg, res, sira, conversationId, text: b.text, modality, replyLang, voiceSession,
+        lang: b.lang ?? '', delegate: b.delegate !== false,
+      });
       return;
     }
 
@@ -469,12 +472,15 @@ async function runSiraTurn(deps: {
   replyLang: 'en' | 'ar' | null;
   voiceSession: string | null;
   lang: string;
+  delegate: boolean;
 }): Promise<void> {
   const { db, cfg, res, sira, conversationId, text, modality, replyLang, voiceSession } = deps;
   if (voiceSession) recordTransition(db, voiceSession, 'thinking', 'server');
   sse(res, 'state', { state: 'thinking' });
 
   const session = sira.getOrCreate(conversationId, replyLang);
+  // Runtime toggle: the canUseTool gate reads this flag on every Task call.
+  session.delegationEnabled = deps.delegate;
   const speakable = new SpeakableStream();
   const sentences = new SentenceBuffer();
   const requestId = ulid('mr');
@@ -491,9 +497,11 @@ async function runSiraTurn(deps: {
   };
   res.on('close', onClose);
 
-  const turnText = replyLang
-    ? `${text}\n\n[Owner setting: reply only in ${replyLang === 'en' ? 'English' : 'Arabic'}.]`
-    : text;
+  const settingLines = [
+    replyLang ? `[Owner setting: reply only in ${replyLang === 'en' ? 'English' : 'Arabic'}.]` : '',
+    deps.delegate ? '' : '[Owner setting: subagent delegation is OFF — do the work yourself; the Task tool will be denied.]',
+  ].filter(Boolean);
+  const turnText = settingLines.length ? `${text}\n\n${settingLines.join('\n')}` : text;
 
   const emitSpeakable = (chunk: string): void => {
     for (const segment of sentences.push(chunk)) {

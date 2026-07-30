@@ -37,9 +37,20 @@ export function serveStatic(webDir: string, req: IncomingMessage, res: ServerRes
     }
   }
 
+  // no-cache = always revalidate with the server (304 when unchanged via
+  // Last-Modified). A local-machine app must NEVER serve stale interface
+  // code from the browser HTTP cache — that is how "the update didn't
+  // appear" (and long-fixed bugs haunting the owner) happens.
+  const stat = statSync(filePath);
+  const lastModified = stat.mtime.toUTCString();
+  if (req.headers['if-modified-since'] === lastModified) {
+    res.writeHead(304, { 'last-modified': lastModified, 'cache-control': 'no-cache' }).end();
+    return;
+  }
   res.writeHead(200, {
     'content-type': TYPES[extname(filePath)] ?? 'application/octet-stream',
-    'cache-control': filePath.endsWith('index.html') ? 'no-store' : 'max-age=300',
+    'cache-control': filePath.endsWith('index.html') ? 'no-store' : 'no-cache',
+    'last-modified': lastModified,
   });
   createReadStream(filePath).pipe(res);
 }

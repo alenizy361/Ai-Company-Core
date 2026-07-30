@@ -188,6 +188,10 @@ export default {
   'speechLang.auto': 'detect automatically',
   'speechLang.en': 'English only',
   'speechLang.ar': 'Arabic only',
+  'palette.nav.delegation': 'Agent delegation: {mode}',
+  'palette.nav.continuous': 'Continuous conversation: {mode}',
+  'toggle.on': 'on',
+  'toggle.off': 'off',
   'palette.nav.motion': 'Toggle reduced motion',
 
   // Errors / degradation.

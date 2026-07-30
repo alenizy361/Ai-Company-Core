@@ -1,6 +1,9 @@
 // SIRA OS API server. Serves the web client, the JSON API, and the SSE
 // event stream. Never executes agent work — that is the worker's job.
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
+import { readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { openDb } from '../shared/db.ts';
 import { loadPaths, loadSystemConfig } from '../shared/config.ts';
 import { seedOrgAndAgents } from '../shared/seed.ts';
@@ -67,7 +70,25 @@ try {
 const engineInfo = { name: sira ? 'agent-sdk' : 'legacy', reason: engineReason };
 console.log(`[sira] conversation engine: ${engineInfo.name} (${engineInfo.reason})`);
 
-registerHealthRoute(router, db, hub, cfg, getAdapterInfo, () => engineInfo);
+// Interface build id: content fingerprint of web/. The client compares it on
+// every health refresh and reloads itself once when a new build is deployed —
+// the owner must never have to know about hard refreshes.
+function computeWebBuildId(dir: string): string {
+  const hash = createHash('sha256');
+  const walk = (d: string): void => {
+    for (const name of readdirSync(d).sort()) {
+      const p = join(d, name);
+      const st = statSync(p);
+      if (st.isDirectory()) walk(p);
+      else hash.update(`${p}:${st.size}:${st.mtimeMs}|`);
+    }
+  };
+  try { walk(dir); } catch { /* partial fingerprint is still a fingerprint */ }
+  return hash.digest('hex').slice(0, 16);
+}
+const webBuildId = computeWebBuildId(paths.webDir);
+
+registerHealthRoute(router, db, hub, cfg, getAdapterInfo, () => engineInfo, () => webBuildId);
 registerStateRoutes(router, db, hub, cfg);
 registerReadRoutes(router, db);
 registerWriteRoutes(router, db);

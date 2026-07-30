@@ -195,6 +195,20 @@ const palette = buildPalette({
       }
       conversation.addSystem(`🎙 ${t('palette.nav.speechLang', { mode: t(`speechLang.${next}`) })}`);
     }
+    else if (id === 'delegation') {
+      // Owner toggle: OFF = SIRA never delegates — one voice, works alone
+      // (enforced at the runtime tool gate, not just by prompt text).
+      const next = prefs.get('delegation') === 'off' ? 'on' : 'off';
+      prefs.set('delegation', next);
+      conversation.addSystem(`⚙ ${t('palette.nav.delegation', { mode: t(`toggle.${next}`) })}`);
+    }
+    else if (id === 'continuous') {
+      // Continuous conversation: after SIRA finishes speaking, the mic
+      // reopens automatically for the next turn.
+      const next = !prefs.bool('continuous');
+      voice.setContinuous(next);
+      conversation.addSystem(`⚙ ${t('palette.nav.continuous', { mode: t(`toggle.${next ? 'on' : 'off'}`) })}`);
+    }
     else if (id === 'motion') {
       prefs.set('motion', prefs.get('motion') === 'reduced' ? 'full' : 'reduced');
       applyMotionAttr();
@@ -286,8 +300,28 @@ backend.subscribe(() => {
     micState: voiceRef?.state === 'muted' ? 'muted' : voiceRef?.capture.active ? 'live' : 'off',
   });
   setApprovalCount(backend.pendingApprovals());
-  const executing = backend.runningExecutions();
-  $('execLine').textContent = executing > 0 ? execCountLabel(executing) : '';
+  // Who is working RIGHT NOW: live SDK delegations by name (so the owner
+  // always knows which agent is thinking/working), else the worker count.
+  const sdkAgents = backend.sdkActiveAgents();
+  if (sdkAgents.size > 0) {
+    const roster = backend.snapshot?.agents ?? [];
+    const label = [...sdkAgents.entries()].map(([key, entry]) => {
+      const agent = roster.find((a) => a.key === key);
+      const name = (document.documentElement.lang === 'ar' ? agent?.nameAr : agent?.nameEn) ?? key;
+      return entry.status === 'using_tool' ? `${name} — ${t('state.using_tool')}` : name;
+    }).join(' · ');
+    $('execLine').textContent = label;
+  } else {
+    const executing = backend.runningExecutions();
+    $('execLine').textContent = executing > 0 ? execCountLabel(executing) : '';
+  }
+  // Deployed a new interface build? Reload ONCE so the owner never runs
+  // stale code (the historical source of "long-fixed" bugs reappearing).
+  const build = backend.health?.build;
+  if (build && bootBuild && build !== bootBuild && sessionStorage.getItem('sira.reloadedBuild') !== build) {
+    sessionStorage.setItem('sira.reloadedBuild', build);
+    location.reload();
+  }
   void network.render();
 });
 
@@ -326,10 +360,12 @@ backend.on('task.status', (ev) => {
 // Debug/test handle — read-only introspection of the live stores.
 window.sira = { backend, conversation, voice, get coreState() { return currentCoreState; } };
 
+let bootBuild = null;
 (async () => {
   document.body.classList.add('booted');
   try {
     await backend.refresh();
+    bootBuild = backend.health?.build ?? null;
     backend.connect();
   } catch {
     renderHeaderState({ connected: false, backendReachable: false, workerFresh: false, adapter: null, micState: 'off' });

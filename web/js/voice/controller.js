@@ -277,6 +277,7 @@ export class VoiceController {
           modality,
           lang: isArabic(text) ? 'ar' : 'en',
           replyLang: prefs.get('replyLang') || 'auto',
+          delegate: prefs.get('delegation') !== 'off',
           conversationId: this.conversationId,
           voiceSessionId: this.store.session?.id,
           voiceToken: this.store.session?.token,

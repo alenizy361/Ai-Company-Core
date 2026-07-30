@@ -92,6 +92,9 @@ export class SiraSession {
   private activeTurn: TurnStream | null = null;
   private turnChain: Promise<unknown> = Promise.resolve();
   private failed: string | null = null;
+  private lastMessageAt = Date.now();
+  /** Owner toggle: when false, the Task tool is DENIED at runtime — SIRA answers itself. */
+  delegationEnabled = true;
 
   constructor(db: Db, cfg: SystemConfig, paths: Paths, conversationId: string, opts: { resume?: string; replyLang?: 'en' | 'ar' | null }) {
     this.db = db;
@@ -128,6 +131,11 @@ export class SiraSession {
       maxTurns: 80,
       ...(opts.resume ? { resume: opts.resume } : {}),
       canUseTool: async (toolName, input) => {
+        // Owner setting: delegation off = the Task tool is denied by the
+        // RUNTIME (not just prompt text) — one voice only, SIRA works alone.
+        if ((toolName === 'Task' || toolName === 'Agent') && !this.delegationEnabled) {
+          return { behavior: 'deny', message: 'The owner disabled subagent delegation — do the work yourself and answer directly.' };
+        }
         // Runtime-enforced approvals: routine reversible work flows freely;
         // genuinely dangerous commands pause THIS session until the owner
         // decides (same approvals table + UI as the worker pipeline).
@@ -156,6 +164,7 @@ export class SiraSession {
   private async pump(): Promise<void> {
     try {
       for await (const msg of this.q) {
+        this.lastMessageAt = Date.now();
         const events = this.router.route(msg as unknown as Record<string, unknown>);
         if (this.router.sdkSessionId) this.persistSessionRow();
         for (const event of events) {
@@ -165,6 +174,13 @@ export class SiraSession {
             this.activeTurn = null;
           }
         }
+      }
+      // The SDK stream ended WITHOUT a result for the live turn (process
+      // exit, session close): the turn must terminate honestly, never hang.
+      if (this.activeTurn) {
+        this.activeTurn.emit({ kind: 'error', message: 'session ended before a final response' });
+        this.activeTurn.finish();
+        this.activeTurn = null;
       }
     } catch (err) {
       this.failed = err instanceof Error ? err.message : String(err);
@@ -236,15 +252,27 @@ export class SiraSession {
         return;
       }
       this.activeTurn = turn;
+      this.lastMessageAt = Date.now();
       this.input.push({
         type: 'user',
         message: { role: 'user', content: text },
         parent_tool_use_id: null,
       });
       // Wait for this turn to complete before the next queued send proceeds.
+      // Idle watchdog: a wedged CLI (no SDK message at all for 15 minutes)
+      // must terminate the turn honestly — the owner is never left hanging.
       await new Promise<void>((resolve) => {
         const poll = setInterval(() => {
           if (this.activeTurn !== turn) {
+            clearInterval(poll);
+            resolve();
+            return;
+          }
+          if (Date.now() - this.lastMessageAt > 900000) {
+            turn.emit({ kind: 'error', message: 'no response from the model runtime for 15 minutes — turn aborted' });
+            turn.finish();
+            this.activeTurn = null;
+            void this.interrupt();
             clearInterval(poll);
             resolve();
           }

@@ -177,6 +177,10 @@ export default {
   'speechLang.auto': 'كشف تلقائي',
   'speechLang.en': 'الإنجليزية فقط',
   'speechLang.ar': 'العربية فقط',
+  'palette.nav.delegation': 'تفويض الوكلاء: {mode}',
+  'palette.nav.continuous': 'محادثة مستمرة: {mode}',
+  'toggle.on': 'مفعّل',
+  'toggle.off': 'مطفأ',
   'palette.nav.motion': 'تبديل تقليل الحركة',
 
   'error.backendUnreachable': 'الخادم غير متاح: {detail}',
