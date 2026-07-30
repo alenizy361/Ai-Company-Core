@@ -11,6 +11,8 @@ import { espeakBin, fishConfigured, chatterboxState } from './voice-providers.ts
 import { getDesktopBridgeStatus } from '../../desktop-bridge/client.ts';
 import { isKilled } from '../../desktop-bridge/kill-switch.ts';
 import { loadDesktopPolicy } from '../../desktop-bridge/policy.ts';
+import { loadBrowserPolicy } from '../../desktop-bridge/browser/policy.ts';
+import { loadAtspiPolicy } from '../../desktop-bridge/atspi/policy.ts';
 import type { Paths } from '../../shared/config.ts';
 
 export interface AdapterInfo {
@@ -98,16 +100,30 @@ export function registerHealthRoute(
     // "enabled" (the policy file) and "reachable" (the daemon actually
     // answering) are different facts. Only probed when this route was given
     // `paths` (the lock file lives at paths.varDir); older/test call sites
-    // that omit it get an honest `null` rather than a guessed value.
-    let desktopBridge: { enabled: boolean; armed: boolean; reachable: boolean } | null = null;
+    // that omit it get an honest `null` rather than a guessed value. Probed
+    // whenever ANY of the three layers (desktop/browser/atspi) is enabled —
+    // not just desktop — so e.g. browser-only enabled still surfaces here
+    // instead of silently reporting reachable:false.
+    let desktopBridge: {
+      enabled: boolean; armed: boolean; reachable: boolean;
+      browser: { enabled: boolean; ready: boolean } | null;
+      atspi: { enabled: boolean; ready: boolean } | null;
+    } | null = null;
     if (paths) {
       try {
         const policy = loadDesktopPolicy();
-        if (policy.enabled) {
+        const browserPolicy = loadBrowserPolicy();
+        const atspiPolicy = loadAtspiPolicy();
+        if (policy.enabled || browserPolicy.enabled || atspiPolicy.enabled) {
           const status = await getDesktopBridgeStatus(cfg);
-          desktopBridge = { enabled: true, armed: !isKilled(paths), reachable: !('unreachable' in status) };
+          const reachable = !('unreachable' in status);
+          desktopBridge = {
+            enabled: policy.enabled, armed: !isKilled(paths), reachable,
+            browser: { enabled: browserPolicy.enabled, ready: reachable && 'browser' in status ? status.browser.ready : false },
+            atspi: { enabled: atspiPolicy.enabled, ready: reachable && 'atspi' in status ? status.atspi.ready : false },
+          };
         } else {
-          desktopBridge = { enabled: false, armed: !isKilled(paths), reachable: false };
+          desktopBridge = { enabled: false, armed: !isKilled(paths), reachable: false, browser: null, atspi: null };
         }
       } catch {
         desktopBridge = null;

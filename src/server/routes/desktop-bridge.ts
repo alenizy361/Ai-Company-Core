@@ -29,18 +29,22 @@ export function registerDesktopBridgeRoutes(router: Router, db: Db, cfg: SystemC
     json(res, 200, { ...status, armed: !isKilled(paths) });
   });
 
+  // Covers all three local-automation layers (desktop_*/browser_*/atspi_*)
+  // in one owner-facing feed — they share the same kill switch and audit
+  // trail, so a single chronological view is more useful than three.
   router.get('/api/desktop-bridge/actions', ({ res, query }) => {
     const limit = Math.min(Math.max(Number(query.get('limit')) || 50, 1), 200);
     const conversationId = query.get('conversationId');
+    const toolFilter = `(tool LIKE 'desktop_%' OR tool LIKE 'browser_%' OR tool LIKE 'atspi_%')`;
     const rows = conversationId
       ? db.all(
           `SELECT id, conversation_id, agent_key, tool, args_json, decision, denial_reason, status, result_summary, result_artifact_id, started_at, finished_at
-           FROM tool_calls WHERE tool LIKE 'desktop_%' AND conversation_id = ? ORDER BY started_at DESC LIMIT ?`,
+           FROM tool_calls WHERE ${toolFilter} AND conversation_id = ? ORDER BY started_at DESC LIMIT ?`,
           conversationId, limit,
         )
       : db.all(
           `SELECT id, conversation_id, agent_key, tool, args_json, decision, denial_reason, status, result_summary, result_artifact_id, started_at, finished_at
-           FROM tool_calls WHERE tool LIKE 'desktop_%' ORDER BY started_at DESC LIMIT ?`,
+           FROM tool_calls WHERE ${toolFilter} ORDER BY started_at DESC LIMIT ?`,
           limit,
         );
     json(res, 200, { actions: rows });

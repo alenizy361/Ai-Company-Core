@@ -202,7 +202,50 @@ test('health: desktopBridge reports enabled/armed/reachable from the real policy
   t.after(srv.close);
 
   const disabled = await (await fetch(`${srv.base}/api/health`)).json() as {
-    desktopBridge: { enabled: boolean; armed: boolean; reachable: boolean } | null;
+    desktopBridge: { enabled: boolean; armed: boolean; reachable: boolean; browser: unknown; atspi: unknown } | null;
   };
-  assert.deepEqual(disabled.desktopBridge, { enabled: false, armed: true, reachable: false }, 'policy.json enabled:false by default');
+  assert.deepEqual(disabled.desktopBridge, { enabled: false, armed: true, reachable: false, browser: null, atspi: null }, 'policy.json enabled:false by default for all three layers');
+});
+
+test('health: desktopBridge is probed and reports browser readiness even when desktop itself is disabled', async (t) => {
+  const { startDesktopDaemon } = await import('../../src/desktop-bridge/daemon.ts');
+  const { readFileSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+
+  const prevBrowserBackend = process.env.SIRA_BROWSER_BACKEND;
+  const prevDesktopBackend = process.env.SIRA_DESKTOP_BACKEND;
+  process.env.SIRA_BROWSER_BACKEND = 'fake';
+  process.env.SIRA_DESKTOP_BACKEND = 'mock'; // keeps the (still-disabled) desktop probe fast and deterministic here
+  t.after(() => {
+    if (prevBrowserBackend === undefined) delete process.env.SIRA_BROWSER_BACKEND; else process.env.SIRA_BROWSER_BACKEND = prevBrowserBackend;
+    if (prevDesktopBackend === undefined) delete process.env.SIRA_DESKTOP_BACKEND; else process.env.SIRA_DESKTOP_BACKEND = prevDesktopBackend;
+  });
+
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  env.cfg.desktopBridgePort = 14670;
+  env.cfg.desktopBridgeUrl = 'http://127.0.0.1:14670';
+  delete process.env.DESKTOP_BRIDGE_TOKEN;
+
+  // Desktop policy stays disabled (default); only the browser policy flips on.
+  const browserPolicyPath = join(env.paths.configDir, 'browser-bridge.json');
+  const originalBrowserPolicy = readFileSync(browserPolicyPath, 'utf8');
+  writeFileSync(browserPolicyPath, JSON.stringify({ ...JSON.parse(originalBrowserPolicy), enabled: true }));
+  t.after(() => writeFileSync(browserPolicyPath, originalBrowserPolicy));
+
+  const daemon = startDesktopDaemon({ db: env.db, cfg: env.cfg, paths: env.paths, orgId: env.cfg.orgId });
+  t.after(() => daemon.close());
+  await new Promise((r) => setTimeout(r, 100));
+
+  const router = new Router();
+  registerHealthRoute(router, env.db, hubStub, env.cfg, () => ({ name: 'mock', reason: 'test' }), undefined, undefined, env.paths);
+  const srv = await startServer(router);
+  t.after(srv.close);
+
+  const health = await (await fetch(`${srv.base}/api/health`)).json() as {
+    desktopBridge: { enabled: boolean; reachable: boolean; browser: { enabled: boolean; ready: boolean } | null } | null;
+  };
+  assert.equal(health.desktopBridge?.enabled, false, 'desktop layer itself is still off');
+  assert.equal(health.desktopBridge?.reachable, true, 'the daemon is probed because browser is enabled, even though desktop is not');
+  assert.deepEqual(health.desktopBridge?.browser, { enabled: true, ready: true });
 });

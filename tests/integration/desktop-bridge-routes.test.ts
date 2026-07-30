@@ -92,10 +92,19 @@ test('desktop-bridge routes: status proxies a real running daemon and reports ar
 
     const res = await fetch(`${srv.base}/api/desktop-bridge/status`);
     assert.equal(res.status, 200);
-    const body = await res.json() as { ok: boolean; backend: { kind: string }; armed: boolean };
+    const body = await res.json() as {
+      ok: boolean; backend: { kind: string }; armed: boolean;
+      browser: { kind: string; ready: boolean }; atspi: { kind: string; ready: boolean };
+    };
     assert.equal(body.ok, true);
     assert.equal(body.backend.kind, 'mock');
     assert.equal(body.armed, true);
+    // Full pass-through of the daemon's own /health response — browser/atspi
+    // readiness surfaces here too, not just the desktop backend.
+    assert.equal(typeof body.browser.kind, 'string');
+    assert.equal(typeof body.browser.ready, 'boolean');
+    assert.equal(typeof body.atspi.kind, 'string');
+    assert.equal(typeof body.atspi.ready, 'boolean');
   });
 });
 
@@ -136,17 +145,20 @@ test('desktop-bridge routes: actions lists recent desktop_ tool_calls, newest fi
   insert('tc_1', 'desktop_click', convA, 1000);
   insert('tc_2', 'desktop_screenshot', convB, 2000);
   insert('tc_3', 'desktop_type', convA, 3000);
-  // Non-desktop tool call must never appear in this feed.
+  // Browser and AT-SPI actions share this same owner-facing feed now.
+  insert('tc_4', 'browser_navigate', convA, 4000);
+  insert('tc_5', 'atspi_click', convB, 5000);
+  // A genuinely unrelated tool call must never appear in this feed.
   env.db.run(
     `INSERT INTO tool_calls (id, execution_id, task_id, conversation_id, agent_key, turn_index, tool, args_json, decision, status, started_at)
-     VALUES ('tc_other', NULL, NULL, ?, 'sira', 0, 'read_file', '{}', 'allowed', 'succeeded', 4000)`,
+     VALUES ('tc_other', NULL, NULL, ?, 'sira', 0, 'read_file', '{}', 'allowed', 'succeeded', 6000)`,
     convA,
   );
 
   const all = await (await fetch(`${srv.base}/api/desktop-bridge/actions`)).json() as { actions: { id: string; tool: string }[] };
-  assert.deepEqual(all.actions.map((a) => a.id), ['tc_3', 'tc_2', 'tc_1']);
-  assert.ok(all.actions.every((a) => a.tool.startsWith('desktop_')));
+  assert.deepEqual(all.actions.map((a) => a.id), ['tc_5', 'tc_4', 'tc_3', 'tc_2', 'tc_1']);
+  assert.ok(all.actions.every((a) => a.tool.startsWith('desktop_') || a.tool.startsWith('browser_') || a.tool.startsWith('atspi_')));
 
   const filtered = await (await fetch(`${srv.base}/api/desktop-bridge/actions?conversationId=${convA}`)).json() as { actions: { id: string }[] };
-  assert.deepEqual(filtered.actions.map((a) => a.id), ['tc_3', 'tc_1']);
+  assert.deepEqual(filtered.actions.map((a) => a.id), ['tc_4', 'tc_3', 'tc_1']);
 });

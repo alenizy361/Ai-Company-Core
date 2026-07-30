@@ -41,6 +41,8 @@ export interface DesktopBridgeStatus {
   armed: boolean;
   backend: { kind: string; ready: boolean; reason: string };
   dependencies: Record<string, boolean>;
+  browser: { enabled: boolean; kind: string; ready: boolean; reason: string; dependencies: Record<string, boolean> };
+  atspi: { enabled: boolean; kind: string; ready: boolean; reason: string; dependencies: Record<string, boolean> };
 }
 
 export async function getDesktopBridgeStatus(cfg: SystemConfig): Promise<DesktopBridgeStatus | { ok: false; unreachable: true; error: string }> {
