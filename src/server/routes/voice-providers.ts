@@ -246,42 +246,67 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
     const sessionId = query.get('session') ?? '';
     const requestId = `${sessionId}-${Date.now()}`;
 
+    const fishAttempt = async (): Promise<boolean> => {
+      const referenceId = (lang === 'ar' ? env.FISH_AUDIO_VOICE_AR : env.FISH_AUDIO_VOICE_EN) ?? env.FISH_AUDIO_VOICE;
+      const upstream = await fetchImpl('https://api.fish.audio/v1/tts', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          // s2.1-pro-free: Fish Audio's free API tier (through Aug 2026) —
+          // works with a keyed account holding zero API credit. Owners with
+          // paid credit can pick a paid model via FISH_AUDIO_MODEL.
+          model: env.FISH_AUDIO_MODEL ?? 's2.1-pro-free',
+        },
+        body: JSON.stringify({
+          text: text.slice(0, 2000), format: 'mp3', latency: 'balanced',
+          ...(referenceId ? { reference_id: referenceId } : {}),
+        }),
+        // This request previously had NO timeout at all: an upstream stall
+        // hung here forever, the client's TTS queue stayed stuck on
+        // "generating speech" indefinitely, and the reply looked like SIRA
+        // had simply stopped responding (even though the text reply had
+        // already arrived over SSE — only the SPOKEN half was dead).
+        signal: AbortSignal.timeout(6_000),
+      });
+      if (!upstream.ok || !upstream.body) return false;
+      res.writeHead(200, {
+        'content-type': upstream.headers.get('content-type') ?? 'audio/mpeg',
+        'cache-control': 'no-store',
+        'x-sira-tts-provider': 'fish-audio',
+      });
+      const reader = upstream.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+      res.end();
+      return true;
+    };
+
     const doFish = async (): Promise<boolean> => {
       if (!key) return false;
-      const referenceId = (lang === 'ar' ? env.FISH_AUDIO_VOICE_AR : env.FISH_AUDIO_VOICE_EN) ?? env.FISH_AUDIO_VOICE;
-      try {
-        const upstream = await fetchImpl('https://api.fish.audio/v1/tts', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${key}`,
-            'Content-Type': 'application/json',
-            // s2.1-pro-free: Fish Audio's free API tier (through Aug 2026) —
-            // works with a keyed account holding zero API credit. Owners with
-            // paid credit can pick a paid model via FISH_AUDIO_MODEL.
-            model: env.FISH_AUDIO_MODEL ?? 's2.1-pro-free',
-          },
-          body: JSON.stringify({
-            text: text.slice(0, 2000), format: 'mp3', latency: 'balanced',
-            ...(referenceId ? { reference_id: referenceId } : {}),
-          }),
-        });
-        if (!upstream.ok || !upstream.body) return false;
-        res.writeHead(200, {
-          'content-type': upstream.headers.get('content-type') ?? 'audio/mpeg',
-          'cache-control': 'no-store',
-          'x-sira-tts-provider': 'fish-audio',
-        });
-        const reader = upstream.body.getReader();
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          res.write(Buffer.from(value));
+      // One immediate retry before conceding the sentence to a lower-quality
+      // provider: a single transient blip (timeout, dropped connection) must
+      // not permanently downgrade the REST of the reply to espeak for the
+      // whole sticky window — that read as "the voice changed and stayed
+      // changed" even though Fish Audio was fine again one request later.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (await fishAttempt()) return true;
+        } catch {
+          // Headers already committed means audio was mid-stream when the
+          // upstream connection dropped — the response can no longer switch
+          // provider (that would corrupt the stream), so stop retrying and
+          // just end it rather than falling through to espeak on top of it.
+          if (res.headersSent) {
+            try { res.end(); } catch { /* already closed */ }
+            return true;
+          }
         }
-        res.end();
-        return true;
-      } catch {
-        return false;
       }
+      return false;
     };
 
     // Sticky selection: within one spoken reply, reuse whichever provider
