@@ -206,10 +206,13 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
           response_format: 'wav',
           request_id: requestId,
         }),
-        // Chatterbox is CPU inference — generation can take a few seconds;
-        // this is still short enough not to stall the sentence queue badly,
-        // and a slow/dead service must fall through rather than hang.
-        signal: AbortSignal.timeout(15_000),
+        // Chatterbox is CPU inference and can genuinely be slow (measured,
+        // not assumed — real-time factor varies by machine). A voice
+        // assistant that goes silent for 15s per sentence LOOKS like it
+        // stopped responding. Fail fast and let the (already-fast) Fish/
+        // espeak fallback answer instead of making the owner wait on a
+        // slow local model turn after turn.
+        signal: AbortSignal.timeout(6_000),
       });
       if (!upstream.ok || !upstream.body) return false;
       res.writeHead(200, {
