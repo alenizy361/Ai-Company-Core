@@ -20,21 +20,23 @@ export interface ObjectiveRow {
   description: string;
   status: string;
   conversation_id: string | null;
+  originating_message_id: string | null;
   replan_count: number;
 }
 
 export function createObjective(
   db: Db,
   cfg: SystemConfig,
-  input: { title: string; description?: string; createdBy?: string; conversationId?: string | null },
+  input: { title: string; description?: string; createdBy?: string; conversationId?: string | null; originatingMessageId?: string | null },
 ): ObjectiveRow {
   const id = ulid('obj');
   const now = Date.now();
   db.transaction(() => {
     db.run(
-      `INSERT INTO objectives (id, org_id, title, description, created_by, status, conversation_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
-      id, cfg.orgId, input.title, input.description ?? '', input.createdBy ?? 'owner', input.conversationId ?? null, now, now,
+      `INSERT INTO objectives (id, org_id, title, description, created_by, status, conversation_id, originating_message_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?)`,
+      id, cfg.orgId, input.title, input.description ?? '', input.createdBy ?? 'owner',
+      input.conversationId ?? null, input.originatingMessageId ?? null, now, now,
     );
     emitEvent(db, { type: 'objective.created', orgId: cfg.orgId, payload: { objectiveId: id, title: input.title } });
     audit(db, cfg.orgId, input.createdBy ?? 'owner', 'objective.create', 'objective', id, { title: input.title });

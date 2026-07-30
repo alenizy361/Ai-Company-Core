@@ -212,6 +212,7 @@ export default {
   'announce.executionFailed': 'A task failed',
   'announce.objectiveCompleted': 'Objective completed',
   'announce.objectiveCancelled': 'Objective cancelled',
+  'announce.backgroundReplyReady': 'SIRA has a response ready',
 
   // Misc.
   'exec.count': '{n} tasks executing',

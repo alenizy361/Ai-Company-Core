@@ -48,6 +48,16 @@ export class ConversationStore {
     this._notify();
   }
 
+  /** A COMPLETE assistant message that was generated entirely server-side
+   * (e.g. the Background Objective Completion Bridge's final synthesis) —
+   * no streaming needed, the text already exists in full. `id` lets a
+   * caller de-duplicate against a later resync() of the same row. */
+  addAssistant(text, { id } = {}) {
+    if (id && this.messages.some((m) => m.id === id)) return; // already shown (event replay / resync race)
+    this.messages.push({ id, role: 'assistant', content: text });
+    this._notify();
+  }
+
   /** Replace local state from the persisted record. */
   async resync() {
     if (!this.id) return;

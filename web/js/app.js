@@ -346,17 +346,37 @@ backend.on('plan.proposed', (ev) => {
 });
 backend.on('objective.finished', (ev) => {
   const status = ev.payload?.status;
-  conversation.addSystem(
-    status === 'completed' ? `✅ ${t('chat.objectiveCompleted')}`
-    : status === 'cancelled' ? `⏹ ${t('chat.objectiveCancelled')}`
-    : `❌ ${t('chat.objectiveFailed')}`,
-  );
-  announcer.say(
-    status === 'completed' ? t('announce.objectiveCompleted')
-    : status === 'cancelled' ? t('announce.objectiveCancelled')
-    : t('announce.executionFailed'),
-  );
+  // A conversation-linked objective's REAL answer arrives separately via
+  // sira.background.final_response (the Background Objective Completion
+  // Bridge) — this generic line must never stand in for that answer. Only
+  // objectives with no conversation to return to (e.g. an autopilot cycle)
+  // get this as their whole signal.
+  if (!ev.payload?.conversationId) {
+    conversation.addSystem(
+      status === 'completed' ? `✅ ${t('chat.objectiveCompleted')}`
+      : status === 'cancelled' ? `⏹ ${t('chat.objectiveCancelled')}`
+      : `❌ ${t('chat.objectiveFailed')}`,
+    );
+    announcer.say(
+      status === 'completed' ? t('announce.objectiveCompleted')
+      : status === 'cancelled' ? t('announce.objectiveCancelled')
+      : t('announce.executionFailed'),
+    );
+  }
   void cards.render();
+});
+backend.on('sira.background.final_response', (ev) => {
+  const p = ev.payload ?? {};
+  if (!p.conversationId || p.conversationId !== conversation.id) { void cards.render(); return; }
+  conversation.addAssistant(p.text ?? '', { id: p.assistantMessageId });
+  // Speak it only when a voice client is actually active and not already
+  // mid-turn — never barge into a live conversation the owner is having
+  // right now, and never speak through an unattended tab.
+  const canSpeak = voice.tts?.available && voice.store?.session && !voice.generating && !voice.busy;
+  if (canSpeak) void voice.tts.enqueue(p.text ?? '');
+  else announcer.say(t('announce.backgroundReplyReady'));
+  void cards.render();
+  void activity.render();
 });
 backend.on('approval.requested', (ev) => {
   conversation.addSystem(`✋ ${t('chat.needsApproval', { subject: ev.payload?.subject ?? '' })}`);

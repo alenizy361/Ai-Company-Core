@@ -117,7 +117,9 @@ export function maybeCompleteObjective(db: Db, cfg: SystemConfig, objectiveId: s
   const finalStatus = failed > 0 ? 'failed' : completed === 0 ? 'cancelled' : 'completed';
   const now = Date.now();
 
-  const objective = db.get<{ title: string; status: string }>('SELECT title, status FROM objectives WHERE id = ?', objectiveId);
+  const objective = db.get<{ title: string; status: string; conversation_id: string | null }>(
+    'SELECT title, status, conversation_id FROM objectives WHERE id = ?', objectiveId,
+  );
   if (!objective || ['completed', 'failed', 'cancelled'].includes(objective.status)) return;
 
   const titles: Record<string, string> = {
@@ -128,10 +130,31 @@ export function maybeCompleteObjective(db: Db, cfg: SystemConfig, objectiveId: s
     cancelled: `Objective cancelled: ${objective.title}`,
   };
   db.transaction(() => {
-    db.run('UPDATE objectives SET status = ?, updated_at = ? WHERE id = ?', finalStatus, now, objectiveId);
+    // Background Objective Completion Bridge: an objective that was opened
+    // FROM a conversation must return its result to that SAME persistent
+    // SIRA session — completing here only marks it terminal, so arm the
+    // async completion sweep (src/sira/objective-bridge.ts, runs in the API
+    // process, where SiraManager actually lives) rather than treating the
+    // generic notification below as the owner's answer.
+    //
+    // The status check above is NOT atomic with this write (multiple
+    // workers, or a worker and the API process, can both reach here for the
+    // same objective around the same time) — so finalize with a conditional
+    // UPDATE and bail out if another caller already won the race, instead
+    // of re-finalizing (which would re-arm an already-completed bridge and
+    // produce a duplicate assistant message). completion_summary_status
+    // only ever moves out of NULL here, once — the sweep owns every
+    // transition after that.
+    const won = db.run(
+      `UPDATE objectives SET status = ?, completed_at = ?, updated_at = ?,
+         completion_summary_status = CASE WHEN conversation_id IS NOT NULL THEN 'pending' ELSE completion_summary_status END
+       WHERE id = ? AND status NOT IN ('completed', 'failed', 'cancelled')`,
+      finalStatus, now, now, objectiveId,
+    );
+    if (Number(won.changes) === 0) return;
     emitEvent(db, {
       type: 'objective.finished', orgId: cfg.orgId,
-      payload: { objectiveId, status: finalStatus, completed, failed, cancelled },
+      payload: { objectiveId, status: finalStatus, completed, failed, cancelled, conversationId: objective.conversation_id },
     });
     notify(db, cfg.orgId, {
       kind: finalStatus === 'completed' ? 'objective_completed' : finalStatus === 'cancelled' ? 'objective_cancelled' : 'objective_failed',

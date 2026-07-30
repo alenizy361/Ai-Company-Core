@@ -295,6 +295,7 @@ export function registerConverseRoutes(
           description: String(routePayload.description ?? b.text),
           createdBy: modality === 'voice' ? 'owner_voice' : 'owner',
           conversationId,
+          originatingMessageId: userMessageId,
         });
         routeResult = { objectiveId: objective.id };
         if (voiceSession) recordTransition(db, voiceSession, 'creating_plan', 'server');

@@ -199,6 +199,7 @@ export default {
   'announce.executionFailed': 'فشلت مهمة',
   'announce.objectiveCompleted': 'اكتمل الهدف',
   'announce.objectiveCancelled': 'أُلغي الهدف',
+  'announce.backgroundReplyReady': 'سيرا عندها رد جاهز',
 
   'exec.count': '{n} مهام قيد التنفيذ',
   'exec.count.one': 'مهمة واحدة قيد التنفيذ',

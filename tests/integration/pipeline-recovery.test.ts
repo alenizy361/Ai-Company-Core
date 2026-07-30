@@ -171,6 +171,37 @@ test('owner cancel of the last task finalizes the objective as cancelled (with n
   assert.ok(env.db.get(`SELECT id FROM notifications WHERE kind = 'objective_cancelled'`));
 });
 
+test('POST /api/objectives/:id/retry-summary: only a FAILED completion synthesis can be retried over HTTP', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const objectiveId = 'obj_retry_http';
+  const now = Date.now();
+  env.db.run(
+    `INSERT INTO objectives (id, org_id, title, status, conversation_id, completion_summary_status, completion_summary_error, created_at, updated_at)
+     VALUES (?, ?, 'retry over http', 'completed', 'cnv_x', 'failed', 'model runtime unavailable', ?, ?)`,
+    objectiveId, env.cfg.orgId, now, now,
+  );
+  const router = new Router();
+  registerWriteRoutes(router, env.db);
+  const srv = await startServer(router);
+  t.after(srv.close);
+
+  const notFailed = await fetch(`${srv.base}/api/objectives/unknown_id/retry-summary`, { method: 'POST' });
+  assert.equal(notFailed.status, 404);
+
+  const ok = await fetch(`${srv.base}/api/objectives/${objectiveId}/retry-summary`, { method: 'POST' });
+  assert.equal(ok.status, 200);
+  assert.equal(
+    env.db.get<{ s: string; e: string | null }>('SELECT completion_summary_status AS s, completion_summary_error AS e FROM objectives WHERE id = ?', objectiveId)?.s,
+    'pending',
+  );
+
+  // A second retry on an already-pending (not failed) row is rejected — no
+  // double-arming, and the error message says exactly why.
+  const again = await fetch(`${srv.base}/api/objectives/${objectiveId}/retry-summary`, { method: 'POST' });
+  assert.equal(again.status, 409);
+});
+
 test('verification substance: placeholders and unclaimed artifacts do not complete tasks', (t) => {
   const env = makeEnv();
   t.after(() => env.cleanup());

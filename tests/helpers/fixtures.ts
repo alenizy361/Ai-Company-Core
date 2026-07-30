@@ -65,11 +65,13 @@ export interface StepFixture {
   verification?: unknown[];
 }
 
-export function createConfirmedPlan(env: TestEnv, title: string, steps: StepFixture[]): { objectiveId: string; planId: string; taskIds: string[] } {
+export function createConfirmedPlan(
+  env: TestEnv, title: string, steps: StepFixture[], conversationId: string | null = null,
+): { objectiveId: string; planId: string; taskIds: string[] } {
   const now = Date.now();
   const objectiveId = ulid('obj');
-  env.db.run(`INSERT INTO objectives (id, org_id, title, status, created_at, updated_at) VALUES (?, ?, ?, 'plan_proposed', ?, ?)`,
-    objectiveId, env.cfg.orgId, title, now, now);
+  env.db.run(`INSERT INTO objectives (id, org_id, title, status, conversation_id, created_at, updated_at) VALUES (?, ?, ?, 'plan_proposed', ?, ?, ?)`,
+    objectiveId, env.cfg.orgId, title, conversationId, now, now);
   const planId = ulid('pln');
   const parsed = {
     reply: title,

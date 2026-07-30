@@ -10,13 +10,14 @@ import { emitEvent, audit } from '../../shared/events.ts';
 import { assertTransitionTask, type TaskStatus } from '../../shared/statuses.ts';
 import { createObjective, confirmPlan, rejectPlan } from '../../planning/plan-service.ts';
 import { cascadeDependencyFailure, maybeCompleteObjective } from '../../worker/handoff.ts';
+import { retryObjectiveSummary } from '../../sira/objective-bridge.ts';
 import { getSetting, setSetting } from '../../shared/settings.ts';
 
 export function registerWriteRoutes(router: Router, db: Db): void {
   const cfg = loadSystemConfig();
 
   router.post('/api/objectives', ({ res, body }) => {
-    const b = body as { title?: string; description?: string; conversationId?: string } | undefined;
+    const b = body as { title?: string; description?: string; conversationId?: string; originatingMessageId?: string } | undefined;
     if (!b?.title || typeof b.title !== 'string' || !b.title.trim()) {
       return errorJson(res, 400, 'BAD_REQUEST', 'title is required');
     }
@@ -24,8 +25,26 @@ export function registerWriteRoutes(router: Router, db: Db): void {
       title: b.title.trim(),
       description: typeof b.description === 'string' ? b.description : '',
       conversationId: b.conversationId ?? null,
+      originatingMessageId: b.originatingMessageId ?? null,
     });
     json(res, 201, objective);
+  });
+
+  // Retry ONLY the completion synthesis (Background Objective Completion
+  // Bridge) after it failed — never re-runs the underlying agent tasks,
+  // whose verified results are preserved untouched.
+  router.post('/api/objectives/:id/retry-summary', ({ res, params }) => {
+    const objective = db.get<{ id: string; completion_summary_status: string | null }>(
+      'SELECT id, completion_summary_status FROM objectives WHERE id = ?', params.id,
+    );
+    if (!objective) return errorJson(res, 404, 'NOT_FOUND', 'unknown objective');
+    if (objective.completion_summary_status !== 'failed') {
+      return errorJson(res, 409, 'ILLEGAL_TRANSITION',
+        `completion summary is '${objective.completion_summary_status ?? 'not applicable'}'; only a failed synthesis can be retried`);
+    }
+    const retried = retryObjectiveSummary(db, params.id);
+    if (!retried) return errorJson(res, 409, 'CONFLICT', 'state changed concurrently; re-check and retry');
+    json(res, 200, { ok: true });
   });
 
   router.post('/api/agents/:key/model', ({ res, params, body }) => {

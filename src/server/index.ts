@@ -23,6 +23,7 @@ import { describeAdapterSelection, selectAdapter } from '../adapters/select.ts';
 import type { ModelAdapter } from '../adapters/types.ts';
 import { activateBaselineAgentPrompts, seedPromptsFromDisk } from '../promptreg/registry.ts';
 import type { SiraManager } from '../sira/session.ts';
+import { runObjectiveCompletionSweep } from '../sira/objective-bridge.ts';
 
 const paths = loadPaths();
 const cfg = loadSystemConfig();
@@ -98,6 +99,25 @@ registerEvalRoutes(router, db);
 registerVoiceProviderRoutes(router, db);
 registerSearchRoutes(router, db);
 
+// Background Objective Completion Bridge: SiraSession instances live only in
+// THIS process's memory, so the sweep that resumes them for a finished
+// background objective must run here too — the worker process only flips
+// objectives.completion_summary_status to 'pending' (src/worker/handoff.ts).
+let completionSweepRunning = false;
+async function tickCompletionSweep(): Promise<void> {
+  if (!sira || completionSweepRunning) return;
+  completionSweepRunning = true;
+  try {
+    await runObjectiveCompletionSweep(db, cfg, sira);
+  } catch (err) {
+    console.error('[sira] objective completion sweep failed:', err instanceof Error ? err.message : err);
+  } finally {
+    completionSweepRunning = false;
+  }
+}
+const completionSweepInterval = setInterval(() => void tickCompletionSweep(), 5000);
+void tickCompletionSweep();
+
 const ownerToken = process.env.OWNER_TOKEN ?? '';
 
 function authorized(req: import('node:http').IncomingMessage): boolean {
@@ -129,6 +149,7 @@ server.listen(cfg.port, () => {
 });
 
 function shutdown(): void {
+  clearInterval(completionSweepInterval);
   hub.stop();
   sira?.closeAll();
   server.close(() => {
