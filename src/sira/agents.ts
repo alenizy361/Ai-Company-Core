@@ -35,9 +35,13 @@ interface RoleSpec {
 }
 
 const ROLES: RoleSpec[] = [
-  { key: 'product', maxTurns: 15, tools: READ_TOOLS,
-    description: 'Product strategy: requirements, prioritization, feature definitions, product improvement proposals.',
-    charter: 'You are the product specialist. Analyze requirements, define scope, propose prioritized improvements with clear user-value rationale.' },
+  // Keys are EXACTLY the company roster keys (config/agents.json / agents
+  // table) — one identity per agent across the SDK session, the neural
+  // network, the inspector, and the events. A key that is not in the roster
+  // would render as a ghost ("an agent thinking that does not exist").
+  { key: 'pm', maxTurns: 15, tools: [...READ_TOOLS, 'WebSearch', 'WebFetch'],
+    description: 'Product management: requirements, prioritization, feature definitions, market/user research, improvement proposals.',
+    charter: 'You are the product manager. Analyze requirements, research the market and users when needed, define scope, and propose prioritized improvements with clear user-value rationale.' },
   { key: 'ux', maxTurns: 15, tools: READ_TOOLS,
     description: 'UX evaluation: interaction design review, usability analysis, information architecture, accessibility.',
     charter: 'You are the UX specialist. Evaluate flows and interfaces for clarity, friction, accessibility, and consistency; give concrete, testable recommendations.' },
@@ -56,9 +60,9 @@ const ROLES: RoleSpec[] = [
   { key: 'security', maxTurns: 20, tools: READ_TOOLS,
     description: 'Security review: vulnerability analysis, permission audits, secret handling, safe defaults.',
     charter: 'You are the security specialist. Audit code and configuration for real vulnerabilities; rank findings by exploitability and give minimal concrete fixes.' },
-  { key: 'analytics', maxTurns: 15, tools: READ_TOOLS,
-    description: 'Analytics: data analysis, metrics definitions, measurement plans, usage insight.',
-    charter: 'You are the analytics specialist. Analyze available data honestly; state confidence and sample limitations with every conclusion.' },
+  { key: 'analytics', maxTurns: 15, tools: [...READ_TOOLS, 'WebSearch', 'WebFetch'],
+    description: 'Analytics and research: data analysis, metrics definitions, measurement plans, external evidence gathering.',
+    charter: 'You are the analytics specialist. Analyze available data and external evidence honestly; cite sources; state confidence and sample limitations with every conclusion.' },
   { key: 'marketing', maxTurns: 12, tools: READ_TOOLS,
     description: 'Marketing: positioning, copy, launch material, audience analysis.',
     charter: 'You are the marketing specialist. Produce clear, truthful positioning and copy grounded in the actual product capabilities.' },
@@ -71,15 +75,20 @@ const ROLES: RoleSpec[] = [
   { key: 'support', maxTurns: 12, tools: READ_TOOLS,
     description: 'Support: troubleshooting guides, user-facing explanations, issue triage.',
     charter: 'You are the support specialist. Turn technical findings into clear, empathetic user-facing guidance.' },
-  { key: 'research', maxTurns: 20, tools: [...READ_TOOLS, 'WebSearch', 'WebFetch'],
-    description: 'Research: investigating technologies, comparing approaches, gathering external evidence.',
-    charter: 'You are the research specialist. Gather and compare evidence; cite sources; separate established facts from your judgment.' },
 ];
 
-/** Build the SDK agents map, honoring the owner's per-agent model tiers. */
+/**
+ * Build the SDK agents map. ONE activation truth: only agents whose roster
+ * row is lifecycle='active' exist for the SDK session — an inactive agent
+ * cannot think, run, or appear anywhere. Models honor the owner's tiers.
+ */
 export function buildSiraAgents(db: Db, cfg: SystemConfig): Record<string, SiraAgentDefinition> {
+  const active = new Set(
+    db.all<{ key: string }>(`SELECT key FROM agents WHERE lifecycle = 'active'`).map((a) => a.key),
+  );
   const agents: Record<string, SiraAgentDefinition> = {};
   for (const role of ROLES) {
+    if (!active.has(role.key)) continue;
     let model: string | undefined;
     try {
       model = resolveAgentModel(db, cfg, role.key);

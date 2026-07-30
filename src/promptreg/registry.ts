@@ -97,25 +97,23 @@ export function seedPromptsFromDisk(db: Db, promptsDir: string): SeedResult[] {
 }
 
 /**
- * First-boot activation: agents ship with baseline prompts and must be usable
- * before any eval has run. Without this, a fresh deployment where
- * `npm run eval -- --promote` was skipped (or scored under the gate) has NO
- * active CEO prompt — every planning attempt crashes — and no assignable
- * agents — every plan step is rejected. Evals still gate every LATER prompt
- * version; this only activates the shipped baseline when nothing is active.
+ * Baseline activation: agents ship with baseline prompts and must be usable
+ * out of the box — an agent with NO active prompt version gets its FIRST
+ * seeded version (the shipped baseline) activated at boot. The eval-bypass
+ * protection is version-scoped, not run-scoped: only MIN(version) — the
+ * baseline as shipped — may auto-activate; every LATER version (an edited
+ * prompt file) stays 'candidate' until it passes the eval gate. This gives
+ * one coherent meaning to "active": every agent the interface shows and the
+ * SDK session can delegate to is genuinely activated, on every machine,
+ * regardless of past eval history.
  */
 export function activateBaselineAgentPrompts(db: Db, orgId: string): string[] {
-  // Strictly virgin agents only: no active version AND no eval run ever
-  // recorded. An agent that has entered the eval flow (even failing the
-  // gate) stays gated — auto-activating there would bypass the eval harness
-  // for edited prompt files. This is a first-boot bootstrap, not a backdoor.
   const rows = db.all<{ key: string; version_id: string }>(
     `SELECT a.key, pv.id AS version_id FROM agents a
      JOIN prompts p ON p.scope = 'agent' AND p.key = a.key
      JOIN prompt_versions pv ON pv.prompt_id = p.id
      WHERE a.active_prompt_version_id IS NULL
-       AND NOT EXISTS (SELECT 1 FROM eval_runs er WHERE er.agent_key = a.key)
-       AND pv.version = (SELECT MAX(version) FROM prompt_versions WHERE prompt_id = p.id)`,
+       AND pv.version = (SELECT MIN(version) FROM prompt_versions WHERE prompt_id = p.id)`,
   );
   const now = Date.now();
   const activated: string[] = [];

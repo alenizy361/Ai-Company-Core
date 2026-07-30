@@ -4,7 +4,7 @@
 // while preserving prose — including fences split across stream deltas.
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { makeEnv } from '../helpers/fixtures.ts';
+import { makeEnv, activateAgents } from '../helpers/fixtures.ts';
 import { SdkMessageRouter } from '../../src/sira/router.ts';
 import { SpeakableStream, speakableSentence } from '../../src/sira/speakable.ts';
 import { buildSiraAgents, SIRA_AGENT_KEYS } from '../../src/sira/agents.ts';
@@ -91,13 +91,21 @@ test('speakable stream: fenced code is suppressed even when the fence splits acr
   assert.ok(out.includes('I fixed it.') && out.includes('All tests pass now.'), 'prose around the fence survives');
 });
 
-test('agent definitions: full roster, no ceo subagent, minimal tools, tier-resolved models', (t) => {
+test('agent definitions: ONE activation truth — only roster-active agents exist for the SDK', (t) => {
   const env = makeEnv();
   t.after(() => env.cleanup());
+  // Nothing activated: the SDK session has NO specialists — an inactive
+  // agent cannot think anywhere (this was the "agents reply before they are
+  // even activated" incoherence).
+  assert.equal(Object.keys(buildSiraAgents(env.db, env.cfg)).length, 0);
+
+  activateAgents(env.db, ['pm', 'backend']);
   const agents = buildSiraAgents(env.db, env.cfg);
-  assert.ok(SIRA_AGENT_KEYS.length >= 12);
-  assert.ok(!('ceo' in agents), 'the parent SIRA session is the orchestrator — no CEO subagent');
-  assert.ok(agents.product.tools && !agents.product.tools.includes('Bash'), 'analysis roles do not get Bash');
+  assert.deepEqual(Object.keys(agents).sort(), ['backend', 'pm'], 'exactly the active roster keys, nothing else');
+  assert.ok(!SIRA_AGENT_KEYS.includes('ceo'), 'the parent SIRA session is the orchestrator — no CEO subagent');
+  assert.ok(SIRA_AGENT_KEYS.every((key) => env.db.get('SELECT key FROM agents WHERE key = ?', key)),
+    'every SDK agent key exists in the company roster (no ghost identities)');
+  assert.ok(agents.pm.tools && !agents.pm.tools.includes('Bash'), 'analysis roles do not get Bash');
   assert.ok(agents.backend.tools?.includes('Edit'), 'engineering roles can edit');
   for (const def of Object.values(agents)) {
     assert.ok(def.description.length > 20 && def.prompt.includes('never speak to the owner'));

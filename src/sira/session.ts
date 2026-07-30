@@ -105,6 +105,7 @@ export class SiraSession {
     const orgName = db.get<{ name: string }>('SELECT name FROM orgs WHERE id = ?', cfg.orgId)?.name ?? 'SIRA';
     const cwd = selfDevEnabled() ? selfDevRoot() : join(paths.workspaceDir, 'sira', conversationId);
     mkdirSync(cwd, { recursive: true });
+    const agents = buildSiraAgents(db, cfg);
 
     // The subprocess must NOT inherit a parent Claude session identity —
     // when SIRA itself runs inside a Claude Code session (dev, self-dev),
@@ -123,18 +124,30 @@ export class SiraSession {
       cwd,
       env,
       model: converseModel(cfg),
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: siraAppendPrompt({ orgName, replyLang: opts.replyLang ?? null, port: cfg.port }) },
-      agents: buildSiraAgents(db, cfg),
+      systemPrompt: {
+        type: 'preset', preset: 'claude_code',
+        append: siraAppendPrompt({ orgName, replyLang: opts.replyLang ?? null, port: cfg.port, agentKeys: Object.keys(agents) }),
+      },
+      agents,
       includePartialMessages: true,
       permissionMode: 'acceptEdits',
       ...(claudeBin.includes('/') && existsSync(claudeBin) ? { pathToClaudeCodeExecutable: claudeBin } : {}),
       maxTurns: 80,
       ...(opts.resume ? { resume: opts.resume } : {}),
       canUseTool: async (toolName, input) => {
-        // Owner setting: delegation off = the Task tool is denied by the
-        // RUNTIME (not just prompt text) — one voice only, SIRA works alone.
-        if ((toolName === 'Task' || toolName === 'Agent') && !this.delegationEnabled) {
-          return { behavior: 'deny', message: 'The owner disabled subagent delegation — do the work yourself and answer directly.' };
+        if (toolName === 'Task' || toolName === 'Agent') {
+          // Owner setting: delegation off = the Task tool is denied by the
+          // RUNTIME (not just prompt text) — one voice only, SIRA works alone.
+          if (!this.delegationEnabled) {
+            return { behavior: 'deny', message: 'The owner disabled subagent delegation — do the work yourself and answer directly.' };
+          }
+          // One activation truth, checked LIVE against the roster: an agent
+          // that is not active cannot think — anywhere, ever.
+          const subagent = String((input as { subagent_type?: string }).subagent_type ?? '');
+          const lifecycle = db.get<{ lifecycle: string }>('SELECT lifecycle FROM agents WHERE key = ?', subagent)?.lifecycle;
+          if (lifecycle !== 'active') {
+            return { behavior: 'deny', message: `Agent "${subagent}" is not active in the company roster — delegate to an active agent or do the work yourself.` };
+          }
         }
         // Runtime-enforced approvals: routine reversible work flows freely;
         // genuinely dangerous commands pause THIS session until the owner

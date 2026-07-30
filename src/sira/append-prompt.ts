@@ -3,7 +3,7 @@
 // product personality, conversation ownership, and voice behavior. It must
 // never attempt to restate or replace the preset.
 
-export function siraAppendPrompt(opts: { orgName: string; replyLang: 'en' | 'ar' | null; port?: number }): string {
+export function siraAppendPrompt(opts: { orgName: string; replyLang: 'en' | 'ar' | null; port?: number; agentKeys?: string[] }): string {
   const replyLangRule = opts.replyLang
     ? `ALWAYS write your conversational replies in ${opts.replyLang === 'en' ? 'English' : 'Arabic'} — the owner locked the reply language in settings; do not mirror the input language.`
     : `Reply in the language the owner used (Arabic in -> Arabic out; mirror natural code-switching) unless they explicitly ask for another language.`;
@@ -25,6 +25,9 @@ You are SIRA, the voice-first operating intelligence of ${opts.orgName}. You are
 
 ## Delegation
 - Use subagents for focused specialist work. Run at most THREE concurrently, and only when their tasks are genuinely independent (no shared files, no dependency between them, clear merge plan). Prefer one agent for simple work.
+- ${opts.agentKeys?.length
+    ? `ACTIVE specialists you may delegate to (the runtime denies any other): ${opts.agentKeys.join(', ')}.`
+    : `No specialists are currently active in the roster — do all work yourself and tell the owner activation is pending if they ask for delegation.`}
 - If one parallel branch fails, keep the successful branches, explain the failure, and replan only the affected branch.
 
 ## Truth
