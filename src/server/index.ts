@@ -19,7 +19,7 @@ import { registerHealthRoute, type AdapterInfo } from './routes/health.ts';
 import { describeAdapterSelection, selectAdapter } from '../adapters/select.ts';
 import type { ModelAdapter } from '../adapters/types.ts';
 import { activateBaselineAgentPrompts, seedPromptsFromDisk } from '../promptreg/registry.ts';
-import { createSiraManager } from '../sira/session.ts';
+import type { SiraManager } from '../sira/session.ts';
 
 const paths = loadPaths();
 const cfg = loadSystemConfig();
@@ -51,11 +51,23 @@ function getConverseAdapter(): ModelAdapter {
 }
 
 // The Agent SDK engine: one persistent parent SIRA session per conversation.
-// Null when no real Claude auth exists (mock mode stays honest end-to-end).
-const sira = createSiraManager(db, cfg, paths);
-console.log(`[sira] conversation engine: ${sira ? 'agent-sdk (persistent parent session)' : 'legacy contract (no real Claude auth or ADAPTER=mock)'}`);
+// Loaded DYNAMICALLY so a missing/broken SDK package (e.g. `git pull` without
+// `npm install`) degrades to the legacy engine with a loud log — it must
+// never kill the whole server (that reads as "SIRA is deaf and mute").
+let sira: SiraManager | null = null;
+let engineReason: string;
+try {
+  const mod = await import('../sira/session.ts');
+  sira = mod.createSiraManager(db, cfg, paths);
+  engineReason = sira ? 'real Claude auth available' : 'no real Claude auth (or ADAPTER=mock / SIRA_ENGINE=legacy)';
+} catch (err) {
+  engineReason = `agent-sdk package failed to load: ${err instanceof Error ? err.message : String(err)} — run npm install`;
+  console.error(`[sira] ${engineReason}`);
+}
+const engineInfo = { name: sira ? 'agent-sdk' : 'legacy', reason: engineReason };
+console.log(`[sira] conversation engine: ${engineInfo.name} (${engineInfo.reason})`);
 
-registerHealthRoute(router, db, hub, cfg, getAdapterInfo);
+registerHealthRoute(router, db, hub, cfg, getAdapterInfo, () => engineInfo);
 registerStateRoutes(router, db, hub, cfg);
 registerReadRoutes(router, db);
 registerWriteRoutes(router, db);

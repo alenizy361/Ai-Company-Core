@@ -21,6 +21,7 @@ export function registerHealthRoute(
   hub: SseHub,
   cfg: SystemConfig,
   getAdapterInfo: () => AdapterInfo,
+  getEngineInfo?: () => { name: string; reason: string },
 ): void {
   router.get('/api/health', ({ res }) => {
     const now = Date.now();
@@ -81,6 +82,8 @@ export function registerHealthRoute(
       adapter: workerAdapter
         ? { name: workerAdapter.adapter as string, reason: `${workerAdapter.adapter_reason ?? ''} (reported by the live worker)` }
         : getAdapterInfo(),
+      // Which conversation engine answers /api/converse (agent-sdk | legacy).
+      engine: getEngineInfo?.() ?? null,
       voiceProviders,
       pendingApprovals,
     });

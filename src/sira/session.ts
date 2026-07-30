@@ -5,7 +5,7 @@
 // final assistant response. This module owns: input pumping, turn
 // demultiplexing, event routing/persistence, approvals, interrupt, and
 // session resume across process restarts.
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { query, type Options, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { Db } from '../shared/db.ts';
@@ -112,6 +112,10 @@ export class SiraSession {
     delete env.CLAUDE_CODE_SESSION_ID;
     delete env.CLAUDE_CODE_CHILD_SESSION;
 
+    // Prefer the owner's installed CLI (subscription auth guaranteed); when
+    // no real path resolves, omit the option so the SDK uses its own bundled
+    // native CLI binary — never pass a bare command name it cannot find.
+    const claudeBin = resolveClaudeBin();
     const options: Options = {
       cwd,
       env,
@@ -120,7 +124,7 @@ export class SiraSession {
       agents: buildSiraAgents(db, cfg),
       includePartialMessages: true,
       permissionMode: 'acceptEdits',
-      pathToClaudeCodeExecutable: resolveClaudeBin(),
+      ...(claudeBin.includes('/') && existsSync(claudeBin) ? { pathToClaudeCodeExecutable: claudeBin } : {}),
       maxTurns: 80,
       ...(opts.resume ? { resume: opts.resume } : {}),
       canUseTool: async (toolName, input) => {
