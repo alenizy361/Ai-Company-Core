@@ -73,7 +73,25 @@ fi
 
 # 3. Install the thin FastAPI wrapper deps into the SAME venv ---------------
 say "Installing the service's own dependencies (fastapi/uvicorn/…) into $PYTHON_ENV"
-"$PY" -m pip install --quiet -r "$REPO_DIR/chatterbox/requirements-service.txt"
+# Some venvs (esp. ones created with `python -m venv --without-pip`, or a
+# uv-managed venv) have no pip at all. Bootstrap it before installing.
+if ! "$PY" -m pip --version >/dev/null 2>&1; then
+  warn "no pip in this venv — bootstrapping it"
+  "$PY" -m ensurepip --upgrade >/dev/null 2>&1 || true
+fi
+if "$PY" -m pip --version >/dev/null 2>&1; then
+  "$PY" -m pip install --quiet -r "$REPO_DIR/chatterbox/requirements-service.txt"
+elif command -v uv >/dev/null 2>&1; then
+  ok "using uv (no pip in this venv)"
+  uv pip install --quiet --python "$PY" -r "$REPO_DIR/chatterbox/requirements-service.txt"
+elif command -v "$HOME/.local/bin/uv" >/dev/null 2>&1; then
+  ok "using ~/.local/bin/uv (no pip in this venv)"
+  "$HOME/.local/bin/uv" pip install --quiet --python "$PY" -r "$REPO_DIR/chatterbox/requirements-service.txt"
+else
+  die "this venv has neither pip nor ensurepip, and uv is not installed. Fix one of:
+      $PY -m ensurepip --upgrade
+      curl -LsSf https://astral.sh/uv/install.sh | sh   # installs uv, then re-run this script"
+fi
 ok "service dependencies installed"
 
 # 4. systemd --user unit (same convention as sira-api / sira-worker) --------
