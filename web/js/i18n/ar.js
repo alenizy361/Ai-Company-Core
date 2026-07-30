@@ -177,6 +177,7 @@ export default {
   'speechLang.auto': 'كشف تلقائي',
   'speechLang.en': 'الإنجليزية فقط',
   'speechLang.ar': 'العربية فقط',
+  'palette.nav.autopilot': 'الطيار الآلي (تشغيل مستمر): {mode}',
   'palette.nav.delegation': 'تفويض الوكلاء: {mode}',
   'palette.nav.continuous': 'محادثة مستمرة: {mode}',
   'toggle.on': 'مفعّل',

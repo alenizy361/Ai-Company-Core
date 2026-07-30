@@ -32,6 +32,7 @@ export function buildPalette({ onAsk, onNavigate, onOpenResult }) {
       { id: 'speechLang', label: t('palette.nav.speechLang', { mode: t(`speechLang.${speechLang}`) }) },
       { id: 'delegation', label: t('palette.nav.delegation', { mode: t(`toggle.${prefs.get('delegation') === 'off' ? 'off' : 'on'}`) }) },
       { id: 'continuous', label: t('palette.nav.continuous', { mode: t(`toggle.${prefs.bool('continuous') ? 'on' : 'off'}`) }) },
+      { id: 'autopilot', label: t('palette.nav.autopilot', { mode: t(`toggle.${window.sira?.backend?.snapshot?.autopilot ? 'on' : 'off'}`) }) },
       { id: 'motion', label: t('palette.nav.motion') },
     ];
   }

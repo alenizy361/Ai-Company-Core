@@ -209,6 +209,20 @@ const palette = buildPalette({
       voice.setContinuous(next);
       conversation.addSystem(`⚙ ${t('palette.nav.continuous', { mode: t(`toggle.${next ? 'on' : 'off'}`) })}`);
     }
+    else if (id === 'autopilot') {
+      // Continuous company operation: plans auto-confirm and (with a standing
+      // directive set) idle periods open new work cycles. Server-side state.
+      void (async () => {
+        const next = backend.snapshot?.autopilot ? 'off' : 'on';
+        const res = await fetch('/api/settings/autopilot', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: next }),
+        });
+        if (res.ok) {
+          await backend.refresh();
+          conversation.addSystem(`⚙ ${t('palette.nav.autopilot', { mode: t(`toggle.${next}`) })}`);
+        }
+      })();
+    }
     else if (id === 'motion') {
       prefs.set('motion', prefs.get('motion') === 'reduced' ? 'full' : 'reduced');
       applyMotionAttr();

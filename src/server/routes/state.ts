@@ -8,6 +8,7 @@ import type { SseHub } from '../sse.ts';
 import type { SystemConfig } from '../../shared/config.ts';
 import { loadAgentsConfig } from '../../shared/config.ts';
 import { deriveAgentStatuses, hasFreshWorker } from '../../shared/derive.ts';
+import { getSetting } from '../../shared/settings.ts';
 
 export function registerStateRoutes(router: Router, db: Db, hub: SseHub, cfg: SystemConfig): void {
   router.get('/api/state', ({ res }) => {
@@ -49,6 +50,7 @@ export function registerStateRoutes(router: Router, db: Db, hub: SseHub, cfg: Sy
     json(res, 200, {
       serverTime: now,
       lastSeq: hub.lastSeq(),
+      autopilot: getSetting(db, 'autopilot') === 'on',
       workerFresh: hasFreshWorker(db, cfg.staleWorkerMs, now),
       workers,
       agents: agents.map((a) => ({

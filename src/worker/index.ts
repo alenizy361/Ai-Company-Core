@@ -17,6 +17,7 @@ import { claimNextPlanningObjective, claimNextTask } from './claims.ts';
 import { runExecution, approvalWaits } from './execute.ts';
 import { runPlanningForObjective } from '../planning/plan-service.ts';
 import { sweepExpiredLeases } from './recovery.ts';
+import { runAutopilotSweep } from './autopilot.ts';
 
 const paths = loadPaths();
 const cfg = loadSystemConfig();
@@ -115,7 +116,13 @@ async function main(): Promise<void> {
     } catch (err) {
       console.error('[worker] sweep failed:', err);
     }
+    try {
+      runAutopilotSweep(db, cfg);
+    } catch (err) {
+      console.error('[worker] autopilot sweep failed:', err);
+    }
   }, cfg.sweepMs);
+  try { runAutopilotSweep(db, cfg); } catch { /* first sweep retries */ }
 
   const launch = (fn: () => Promise<void>, cleanup: () => void): void => {
     activeBranches++;

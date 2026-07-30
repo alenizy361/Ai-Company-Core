@@ -10,6 +10,7 @@ import { emitEvent, audit } from '../../shared/events.ts';
 import { assertTransitionTask, type TaskStatus } from '../../shared/statuses.ts';
 import { createObjective, confirmPlan, rejectPlan } from '../../planning/plan-service.ts';
 import { cascadeDependencyFailure, maybeCompleteObjective } from '../../worker/handoff.ts';
+import { getSetting, setSetting } from '../../shared/settings.ts';
 
 export function registerWriteRoutes(router: Router, db: Db): void {
   const cfg = loadSystemConfig();
@@ -148,6 +149,27 @@ export function registerWriteRoutes(router: Router, db: Db): void {
       audit(db, cfg.orgId, b?.decidedBy ?? 'owner', `approval.${decision}`, 'approval', approval.id, { via: b?.via ?? 'ui', reason: b?.reason });
     });
     json(res, 200, { ok: true });
+  });
+
+  // Autopilot: owner-controlled continuous operation. Allowlisted keys only.
+  const SETTABLE = new Set(['autopilot', 'autopilot.directive']);
+  router.post('/api/settings/:key', ({ res, params, body }) => {
+    if (!SETTABLE.has(params.key)) return errorJson(res, 400, 'BAD_REQUEST', `settable keys: ${[...SETTABLE].join(', ')}`);
+    const value = String((body as { value?: unknown } | undefined)?.value ?? '');
+    if (params.key === 'autopilot' && value !== 'on' && value !== 'off') {
+      return errorJson(res, 400, 'BAD_REQUEST', 'autopilot must be "on" or "off"');
+    }
+    setSetting(db, params.key, value);
+    audit(db, cfg.orgId, 'owner', 'setting.set', 'setting', params.key, { value: value.slice(0, 200) });
+    json(res, 200, { ok: true, key: params.key, value });
+  });
+
+  router.get('/api/settings', ({ res }) => {
+    json(res, 200, {
+      autopilot: getSetting(db, 'autopilot') ?? 'off',
+      'autopilot.directive': getSetting(db, 'autopilot.directive') ?? '',
+      'autopilot.lastCycleAt': Number(getSetting(db, 'autopilot.lastCycleAt') ?? 0),
+    });
   });
 
   router.post('/api/notifications/:id/read', ({ res, params }) => {

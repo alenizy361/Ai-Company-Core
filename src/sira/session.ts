@@ -123,7 +123,7 @@ export class SiraSession {
       cwd,
       env,
       model: converseModel(cfg),
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: siraAppendPrompt({ orgName, replyLang: opts.replyLang ?? null }) },
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: siraAppendPrompt({ orgName, replyLang: opts.replyLang ?? null, port: cfg.port }) },
       agents: buildSiraAgents(db, cfg),
       includePartialMessages: true,
       permissionMode: 'acceptEdits',

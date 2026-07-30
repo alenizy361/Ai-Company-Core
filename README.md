@@ -102,6 +102,32 @@ commands pause the session for owner approval (same approvals UI). Without
 real Claude auth (or with `ADAPTER=mock` / `SIRA_ENGINE=legacy`) the legacy
 contract path answers instead, honestly labeled.
 
+## Autopilot — the always-working company
+
+With autopilot ON (Ctrl+K → "Autopilot", or by asking SIRA by voice), the
+company never waits for you:
+
+- Every proposed plan is **confirmed automatically** (actor `autopilot`,
+  audited, with a notification each time — automatic never means silent).
+- With a **standing directive** set, an idle board opens a new work cycle
+  from it every 6 hours (`SIRA_AUTOPILOT_CYCLE_MS`): each cycle plans the
+  single most valuable next increment, building on prior cycles' artifacts
+  and memory.
+- A **token budget** pauses autopilot when the current 5-hour usage window
+  runs hot (`SIRA_AUTOPILOT_TOKENS_5H`, default 3M) and resumes it in the
+  next window — a dedicated machine works around the clock without draining
+  the subscription quota in one burst.
+- Safety is unchanged: plan validation, backend verification of every
+  completion, and owner approval for dangerous actions all still apply.
+  Autopilot removes *waiting*, not oversight.
+
+```
+# by API (SIRA can also do this herself when you ask by voice):
+curl -X POST localhost:4600/api/settings/autopilot -H 'content-type: application/json' -d '{"value":"on"}'
+curl -X POST localhost:4600/api/settings/autopilot.directive -H 'content-type: application/json' \
+  -d '{"value":"Continuously improve the product: quality, tests, docs, and UX."}'
+```
+
 ## Model access (Claude Max plan by design)
 
 The execution worker's agents share one Claude subscription via the
