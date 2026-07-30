@@ -20,6 +20,10 @@ import { buildSiraAgents } from './agents.ts';
 import { buildRoleToolServer } from '../tools/sdk-bridge.ts';
 import { buildDesktopToolServer, DESKTOP_TOOL_NAMES } from '../tools/desktop-bridge-tools.ts';
 import { loadDesktopPolicy } from '../desktop-bridge/policy.ts';
+import { buildBrowserToolServer, BROWSER_TOOL_NAMES } from '../tools/browser-tools.ts';
+import { loadBrowserPolicy } from '../desktop-bridge/browser/policy.ts';
+import { buildAtspiToolServer, ATSPI_TOOL_NAMES } from '../tools/atspi-tools.ts';
+import { loadAtspiPolicy } from '../desktop-bridge/atspi/policy.ts';
 import { siraAppendPrompt } from './append-prompt.ts';
 import { SdkMessageRouter, type TurnEvent } from './router.ts';
 
@@ -176,10 +180,30 @@ export class SiraSession {
     const desktopCustomTools = desktopPolicy.enabled
       ? DESKTOP_TOOL_NAMES.map((t) => `mcp__${desktopServerKey}__${t}`)
       : [];
+
+    // Browser (Playwright, semantic CSS selectors) and AT-SPI (native Linux
+    // GTK/Qt accessibility tree) automation — two ADDITIONAL, faster routing
+    // options alongside desktop_* raw-coordinate control, not a replacement.
+    // Same gating discipline: explicit owner opt-in per policy file, parent
+    // session only, never subagents.
+    const browserPolicy = loadBrowserPolicy();
+    const browserServerKey = 'sira-browser';
+    const browserCustomTools = browserPolicy.enabled
+      ? BROWSER_TOOL_NAMES.map((t) => `mcp__${browserServerKey}__${t}`)
+      : [];
+
+    const atspiPolicy = loadAtspiPolicy();
+    const atspiServerKey = 'sira-atspi';
+    const atspiCustomTools = atspiPolicy.enabled
+      ? ATSPI_TOOL_NAMES.map((t) => `mcp__${atspiServerKey}__${t}`)
+      : [];
+
     const mcpServers = {
       ...subagentMcpServers,
       [parentServerKey]: parentToolServer.server,
       ...(desktopPolicy.enabled ? { [desktopServerKey]: buildDesktopToolServer({ cfg, agentKey: 'sira', conversationId }).server } : {}),
+      ...(browserPolicy.enabled ? { [browserServerKey]: buildBrowserToolServer({ cfg, agentKey: 'sira', conversationId }).server } : {}),
+      ...(atspiPolicy.enabled ? { [atspiServerKey]: buildAtspiToolServer({ cfg, agentKey: 'sira', conversationId }).server } : {}),
     };
 
     // The subprocess must NOT inherit a parent Claude session identity —
@@ -201,7 +225,10 @@ export class SiraSession {
       model: converseModel(cfg),
       systemPrompt: {
         type: 'preset', preset: 'claude_code',
-        append: siraAppendPrompt({ orgName, replyLang: opts.replyLang ?? null, port: cfg.port, agentKeys: Object.keys(agents) }),
+        append: siraAppendPrompt({
+          orgName, replyLang: opts.replyLang ?? null, port: cfg.port, agentKeys: Object.keys(agents),
+          desktopEnabled: desktopPolicy.enabled, browserEnabled: browserPolicy.enabled, atspiEnabled: atspiPolicy.enabled,
+        }),
       },
       agents,
       mcpServers,
@@ -211,7 +238,7 @@ export class SiraSession {
       // not merely intercepted below. Read/Glob/Grep stay (read-only, path-
       // checked below); Task is delegation (also gated below); the parent's
       // own write/memory capability is its mcp__sira-parent__* tools.
-      tools: ['Read', 'Glob', 'Grep', 'Task', 'WebSearch', 'WebFetch', ...parentCustomTools, ...desktopCustomTools],
+      tools: ['Read', 'Glob', 'Grep', 'Task', 'WebSearch', 'WebFetch', ...parentCustomTools, ...desktopCustomTools, ...browserCustomTools, ...atspiCustomTools],
       includePartialMessages: true,
       ...(claudeBin.includes('/') && existsSync(claudeBin) ? { pathToClaudeCodeExecutable: claudeBin } : {}),
       maxTurns: 80,
