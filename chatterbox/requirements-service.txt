@@ -7,3 +7,6 @@ soundfile
 psutil
 httpx
 pytest
+# Fast tier (facebook/mms-tts-ara / -eng): plain torch (already present for
+# Chatterbox) + transformers for VitsModel/AutoTokenizer.
+transformers

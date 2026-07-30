@@ -150,14 +150,14 @@ a provider interface; configuring keys switches the primary path
 | Layer | Fallback (works now) | Primary when configured |
 |---|---|---|
 | STT | Web Speech (browser) | Deepgram — `DEEPGRAM_API_KEY` |
-| TTS | speechSynthesis | Chatterbox (local, `CHATTERBOX_URL`) → Fish Audio (`FISH_API_KEY`) → espeak-ng, tried in that order, **sticky per reply** so one answer never switches voices mid-sentence |
+| TTS | speechSynthesis | Chatterbox (local, `CHATTERBOX_URL`) → Fish Audio (`FISH_API_KEY`) → Chatterbox-fast (local, MMS-TTS) → espeak-ng, tried in that order, **sticky per reply** so one answer never switches voices mid-sentence |
 | Wake word | none → push-to-talk | Porcupine — `PICOVOICE_ACCESS_KEY` |
 | Transport | in-page capture | LiveKit — `LIVEKIT_URL/API_KEY/API_SECRET` |
 
-### Local voice (Chatterbox Multilingual V3)
+### Local voice (Chatterbox Multilingual V3 + fast fallback)
 
 The steadiest and cheapest voice option: a persistent local TTS service that
-loads the model once and answers every reply with one consistent voice.
+loads once and answers every reply with a consistent voice — no cloud call.
 
 ```bash
 # once you have a working chatterbox-tts Python environment:
@@ -165,20 +165,32 @@ loads the model once and answers every reply with one consistent voice.
 systemctl --user restart sira-api sira-worker   # picks up CHATTERBOX_URL
 ```
 
+**Two tiers in the same service**, because Chatterbox is CPU-heavy (measured
+real-time factor varies widely by machine — could be well under 1, could be
+4x+ on a modest CPU):
+- **Quality tier** (`/v1/audio/speech`): Chatterbox Multilingual V3.
+- **Fast tier** (`/v1/audio/speech/fast`): `facebook/mms-tts-ara` / `-eng` —
+  a real neural voice (not espeak's formant synthesis), single feed-forward
+  pass so it stays fast even when Chatterbox doesn't. More formal-sounding
+  than Chatterbox, not dialect-tuned, and **CC-BY-NC-4.0 (non-commercial
+  use only)**. Downloads once on first boot (needs internet that one time,
+  then fully offline); disable with `MMS_FAST_TTS_ENABLED=0` on the service.
+
 Check it actually connected — `/api/health` reports `chatterboxLive` from a
 live probe, not just whether the env var is set (a set-but-unreachable URL
 falls through to Fish/espeak silently, same as before):
 
-Want Chatterbox as the *only* voice — never fall back to Fish/espeak, even
-on failure (a failed sentence stays silent; the text reply still arrives)?
-Add `CHATTERBOX_ONLY=1` to `~/.config/sira/env`. Fail-fast no longer applies
-in this mode (nothing to fall back to), so the per-request wait defaults to
-30s instead of 6s — override either with `CHATTERBOX_TIMEOUT_MS`.
-
 ```bash
-curl -s http://127.0.0.1:8765/health          # the Chatterbox service itself
+curl -s http://127.0.0.1:8765/health          # the Chatterbox service itself (both tiers)
 curl -s localhost:4600/api/health | grep -o '"tts":"[a-z-]*"\|"chatterboxLive":[a-z]*'
 ```
+
+Want Chatterbox's quality voice as the *only* voice — never fall back at
+all, even to the fast tier or espeak (a failed sentence stays silent; the
+text reply still arrives)? Add `CHATTERBOX_ONLY=1` to `~/.config/sira/env`.
+Fail-fast no longer applies in this mode (nothing to fall back to), so the
+per-request wait defaults to 30s instead of 6s — override either default
+with `CHATTERBOX_TIMEOUT_MS`.
 
 Live integration of the keyed providers is the next milestone once
 credentials exist; the selection, labeling, and degradation paths are in

@@ -134,13 +134,16 @@ ok "chatterbox-tts.service enabled and (re)started"
 
 # 5. Wait for the model to actually finish loading (can take a while on CPU) -
 say "Waiting for the model to load (CPU inference — first load can take a minute or two)"
+warn "first boot also downloads the fast-tier voices (facebook/mms-tts-ara/-eng, ~a few hundred MB total) — needs internet ONCE, then fully offline"
 READY=false
 for i in $(seq 1 60); do
   if curl -fs "http://127.0.0.1:$PORT/ready" >/dev/null 2>&1; then READY=true; break; fi
   sleep 2
 done
 if [ "$READY" = true ]; then
-  ok "Chatterbox is ready on http://127.0.0.1:$PORT"
+  ok "Chatterbox (quality tier) is ready on http://127.0.0.1:$PORT"
+  FAST_LANGS="$(curl -fs "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -o '"languages_ready":\[[^]]*\]' || true)"
+  if [ -n "$FAST_LANGS" ]; then ok "fast tier: $FAST_LANGS"; else warn "fast tier not ready yet — check: curl -s http://127.0.0.1:$PORT/health"; fi
 else
   warn "not ready yet after 2 minutes — check:  journalctl --user -u chatterbox-tts -f"
 fi

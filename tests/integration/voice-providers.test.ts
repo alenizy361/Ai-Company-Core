@@ -303,6 +303,41 @@ test('CHATTERBOX_ONLY: never falls back to Fish/espeak, even a hung/failed reque
   assert.ok(!fishCalled, 'fish is never even tried in CHATTERBOX_ONLY mode');
 });
 
+test('chatterbox-fast (MMS): sits between Fish and espeak, used when both Chatterbox and Fish are unavailable', async (t) => {
+  const env = makeEnv();
+  t.after(() => env.cleanup());
+  const calls: string[] = [];
+  const router = new Router();
+  registerVoiceProviderRoutes(router, env.db, {
+    env: { CHATTERBOX_URL: 'http://cb.local:8765' }, // no FISH_AUDIO_API_KEY
+    fetchImpl: async (url, init) => {
+      calls.push(String(url));
+      if (String(url).endsWith('/v1/audio/speech')) return new Response('down', { status: 503 });
+      if (String(url).endsWith('/v1/audio/speech/fast')) {
+        const sent = JSON.parse(String(init?.body)) as { input: string; language: string; request_id: string };
+        assert.equal(sent.input, 'hello there');
+        assert.equal(sent.language, 'en');
+        assert.ok(sent.request_id);
+        return new Response(Buffer.from('RIFF....WAVEfake'), { status: 200, headers: { 'content-type': 'audio/wav' } });
+      }
+      throw new Error(`unexpected url ${url}`);
+    },
+  });
+  const srv = await startServer(router);
+  t.after(srv.close);
+  const session = createVoiceSession(env.db, 'test', 900);
+
+  const res = await fetch(`${srv.base}/api/voice/tts?session=${session.id}&token=${session.token}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'hello there', lang: 'en' }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('x-sira-tts-provider'), 'chatterbox-fast');
+  assert.deepEqual(calls, [
+    'http://cb.local:8765/v1/audio/speech',
+    'http://cb.local:8765/v1/audio/speech/fast',
+  ], 'quality tier tried first, fast tier second — fish skipped (no key), espeak never reached');
+});
+
 test('mintLivekitToken is deterministic and time-bounded', () => {
   const token = mintLivekitToken('k', 's', 'me', 'room', 60, 1000000);
   const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) as { exp: number; nbf: number };

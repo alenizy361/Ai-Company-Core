@@ -41,7 +41,8 @@ let espeakBinCache: string | null | undefined;
  * silence never happens because the chain always ends at espeak if installed.
  */
 const STICKY_MS = 45_000;
-type TtsProvider = 'chatterbox' | 'fish-audio' | 'espeak';
+type TtsProvider = 'chatterbox' | 'fish-audio' | 'chatterbox-fast' | 'espeak';
+const DEFAULT_ORDER: TtsProvider[] = ['chatterbox', 'fish-audio', 'chatterbox-fast', 'espeak'];
 const stickyProvider = new Map<string, { provider: TtsProvider; at: number }>();
 
 function getSticky(sessionId: string): TtsProvider | null {
@@ -243,6 +244,42 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
     }
   };
 
+  // Fast tier of the SAME local service: facebook/mms-tts-{ara,eng} (VITS,
+  // single feed-forward pass — no diffusion/flow-matching steps, so it stays
+  // fast on CPU even when Chatterbox itself is too slow). A real neural
+  // voice, not espeak's formant synthesis — sits between Chatterbox (quality)
+  // and espeak (always-available last resort) in the default chain.
+  const synthChatterboxFast = async (
+    res: Parameters<typeof json>[0], text: string, lang: 'ar' | 'en', requestId: string,
+  ): Promise<boolean> => {
+    try {
+      const upstream = await fetchImpl(`${chatterboxUrl}/v1/audio/speech/fast`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ input: text.slice(0, 400), language: lang, request_id: requestId }),
+        // Expected to be genuinely fast (single feed-forward pass); if it
+        // isn't, fail fast into espeak rather than stalling the reply.
+        signal: AbortSignal.timeout(6_000),
+      });
+      if (!upstream.ok || !upstream.body) return false;
+      res.writeHead(200, {
+        'content-type': 'audio/wav',
+        'cache-control': 'no-store',
+        'x-sira-tts-provider': 'chatterbox-fast',
+      });
+      const reader = upstream.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+      res.end();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   router.post('/api/voice/tts', async ({ res, query, body }) => {
     if (!requireSession(query, res)) return;
     // FISH_API_KEY is the canonical name; FISH_AUDIO_API_KEY remains accepted
@@ -329,8 +366,8 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
     const order: TtsProvider[] = chatterboxOnly
       ? ['chatterbox']
       : sticky
-        ? [sticky, ...(['chatterbox', 'fish-audio', 'espeak'] as TtsProvider[]).filter((p) => p !== sticky)]
-        : ['chatterbox', 'fish-audio', 'espeak'];
+        ? [sticky, ...DEFAULT_ORDER.filter((p) => p !== sticky)]
+        : DEFAULT_ORDER;
 
     for (const provider of order) {
       if (provider === 'chatterbox') {
@@ -342,6 +379,12 @@ export function registerVoiceProviderRoutes(router: Router, db: Db, deps: VoiceP
       } else if (provider === 'fish-audio') {
         if (await doFish()) {
           if (sessionId) setSticky(sessionId, 'fish-audio');
+          return;
+        }
+      } else if (provider === 'chatterbox-fast') {
+        if (!chatterboxEnabled) continue;
+        if (await synthChatterboxFast(res, text, lang, requestId)) {
+          if (sessionId) setSticky(sessionId, 'chatterbox-fast');
           return;
         }
       } else if (localOk) {
