@@ -6,15 +6,15 @@
 import { motionAllowed } from '../core/prefs.js';
 
 const STATE_COLORS = {
-  ready: '#38e1ff', wake_word_listening: '#38e1ff', listening: '#4ade80',
+  ready: '#22d3ee', wake_word_listening: '#22d3ee', listening: '#4ade80',
   detecting_end_of_turn: '#4ade80', transcribing: '#4ade80',
-  thinking: '#b18cff', routing: '#b18cff', calling_tool: '#fbbf24', creating_plan: '#b18cff',
-  connecting_agents: '#38e1ff', executing: '#38e1ff', using_tool: '#fbbf24',
-  receiving_handoff: '#b18cff', verifying: '#4ade80', waiting_for_approval: '#fbbf24',
-  generating_speech: '#b18cff', generating_response: '#b18cff', speaking: '#b18cff',
-  interrupted: '#fbbf24', connecting: '#8b93c4', reconnecting: '#8b93c4', muted: '#64748b',
-  offline: '#64748b', sync_lost: '#fb7185', failed: '#fb7185',
-  initializing: '#8b93c4', permission_required: '#fbbf24',
+  thinking: '#a78bfa', routing: '#a78bfa', calling_tool: '#facc15', creating_plan: '#a78bfa',
+  connecting_agents: '#22d3ee', executing: '#22d3ee', using_tool: '#facc15',
+  receiving_handoff: '#a78bfa', verifying: '#4ade80', waiting_for_approval: '#facc15',
+  generating_speech: '#a78bfa', generating_response: '#a78bfa', speaking: '#a78bfa',
+  interrupted: '#facc15', connecting: '#7ab0ff', reconnecting: '#7ab0ff', muted: '#64748b',
+  offline: '#64748b', sync_lost: '#f87171', failed: '#f87171',
+  initializing: '#7ab0ff', permission_required: '#facc15',
 };
 
 const MOVING_STATES = new Set([
@@ -58,12 +58,24 @@ export class SiraCore {
     this.dpr = dpr;
   }
 
+  /** Three concentric rings around the core, sized off the current radius.
+   *  Solid, not dashed: a rotating featureless circle looks identical to a
+   *  static one, so there's nothing honest to animate here — these are pure
+   *  static framing, like a bezel. */
+  decoRings(r) {
+    return [
+      { radius: r * 1.3, color: '#7c3aed', alpha: 0.55, width: 1.5 },
+      { radius: r * 1.5, color: '#22d3ee', alpha: 0.4, width: 1.2 },
+      { radius: r * 1.68, color: '#a78bfa', alpha: 0.45, width: 1 },
+    ];
+  }
+
   draw() {
     requestAnimationFrame(() => this.draw());
     if (document.hidden) return;
     const { ctx, W, H, CX, CY, dpr } = this;
     const { state, amplitude, executing, approvals } = this.getSignals();
-    const color = STATE_COLORS[state] ?? '#8b93c4';
+    const color = STATE_COLORS[state] ?? '#7ab0ff';
     const moving = motionAllowed() && MOVING_STATES.has(state);
 
     if (moving) this.t += ['thinking', 'creating_plan', 'routing'].includes(state) ? 0.02 : 0.008;
@@ -82,20 +94,30 @@ export class SiraCore {
     const r = this.R * (1 + breathe + amplitude * 0.22);
 
     let g = ctx.createRadialGradient(CX, CY, 0, CX, CY, r * 1.9);
-    g.addColorStop(0, 'rgba(216,180,254,0.5)');
-    g.addColorStop(0.35, 'rgba(168,85,247,0.3)');
+    g.addColorStop(0, 'rgba(167,139,250,0.5)');
+    g.addColorStop(0.35, 'rgba(124,58,237,0.3)');
     g.addColorStop(0.62, color + '22');
     g.addColorStop(1, 'transparent');
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(CX, CY, r * 1.9, 0, 7); ctx.fill();
 
     g = ctx.createRadialGradient(CX - r * 0.3, CY - r * 0.25, 0, CX, CY, r);
-    g.addColorStop(0, 'rgba(244,214,255,0.85)');
-    g.addColorStop(0.45, 'rgba(147,90,235,0.55)');
-    g.addColorStop(0.8, 'rgba(23,37,84,0.9)');
+    g.addColorStop(0, 'rgba(196,181,253,0.9)');
+    g.addColorStop(0.45, 'rgba(124,58,237,0.65)');
+    g.addColorStop(0.8, 'rgba(30,27,75,0.9)');
     g.addColorStop(1, 'rgba(10,15,35,0.95)');
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(CX, CY, r, 0, 7); ctx.fill();
+
+    // Three decorative concentric rings — purely ambient framing (like a
+    // clock's bezel), never implying data of their own.
+    for (const ring of this.decoRings(r)) {
+      ctx.strokeStyle = ring.color;
+      ctx.globalAlpha = ring.alpha;
+      ctx.lineWidth = ring.width * dpr;
+      ctx.beginPath(); ctx.arc(CX, CY, ring.radius, 0, 7); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
 
     // Inner mesh rotates only while genuinely active.
     const proj = [];
@@ -130,7 +152,7 @@ export class SiraCore {
     // Approval ring: only a REAL pending approval shows it.
     if (approvals > 0) {
       ctx.setLineDash([8 * dpr, 6 * dpr]);
-      ctx.strokeStyle = '#fbbf24';
+      ctx.strokeStyle = '#facc15';
       ctx.beginPath(); ctx.arc(CX, CY, r * 1.18, 0, 7); ctx.stroke();
       ctx.setLineDash([]);
     }

@@ -8,6 +8,15 @@ import { t } from '../i18n/i18n.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
 
+// Purely decorative per-role glyph — one static icon per real agent key, no
+// data of its own. Any agent key not listed here (e.g. a future role) simply
+// renders without one; nothing depends on this map being complete.
+const ROLE_ICON = {
+  ceo: '👤', backend: '💻', qa: '🧪', pm: '📋', frontend: '🎨', database: '🗄',
+  operations: '⚙️', security: '🛡', ux: '🖌', analytics: '📊', marketing: '📢',
+  finance: '💲', support: '🎧',
+};
+
 function svgEl(tag, attrs) {
   const node = document.createElementNS(SVG, tag);
   for (const [k, v] of Object.entries(attrs ?? {})) {
@@ -187,7 +196,13 @@ export class NetworkGraph {
         'aria-label': t('network.node', { name: label, status: t(`state.${status}`, {}) === `state.${status}` ? status : t(`state.${status}`) }),
       });
       g.appendChild(svgEl('circle', { class: 'body', cx: node.x, cy: node.y, r: 24, fill: agent.color ? `${agent.color}22` : undefined }));
-      const shortText = svgEl('text', { class: 'short', x: node.x, y: node.y + 4 });
+      const icon = ROLE_ICON[agent.key];
+      if (icon) {
+        const iconText = svgEl('text', { class: 'icon', x: node.x, y: node.y - 5, 'aria-hidden': 'true' });
+        iconText.textContent = icon;
+        g.appendChild(iconText);
+      }
+      const shortText = svgEl('text', { class: 'short', x: node.x, y: node.y + (icon ? 15 : 4) });
       shortText.textContent = agent.short;
       g.appendChild(shortText);
       const statusText = svgEl('text', { class: 'status', x: node.x, y: node.y + 38 });

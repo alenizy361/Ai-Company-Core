@@ -1,20 +1,22 @@
 /* SIRA design tokens — single source for color/space/type. Dark, spatial,
-   calm. All component CSS consumes these variables. */
+   calm — the "neural command center" palette. All component CSS consumes
+   these variables. */
 :root {
-  --bg: #060913;
-  --bg-elev: #0a0f1f;
-  --bg-elev2: #0d1326;
-  --bg-input: #070a16;
-  --line: #1b2340;
+  --bg: #020818;
+  --bg-elev: #0a0f28;
+  --bg-elev2: #0d1330;
+  --bg-input: #00051e;
+  --line: #1a2a6c;
   --line-strong: #2a3560;
-  --text: #e8ecff;
-  --dim: #8b93c4;
-  --accent: #38e1ff;      /* SIRA cyan — identity color */
+  --text: #c0d8ff;
+  --dim: #7ab0ff;
+  --accent: #22d3ee;      /* SIRA cyan — identity color */
   --accent-deep: #0ea5c9;
-  --violet: #b18cff;      /* generation/speech */
+  --violet: #a78bfa;      /* generation/speech */
+  --violet-deep: #7c3aed; /* primary neural-core violet */
   --green: #4ade80;       /* listening/success */
-  --amber: #fbbf24;       /* attention/approval */
-  --red: #fb7185;         /* failure */
+  --amber: #facc15;       /* attention/approval */
+  --red: #f87171;         /* failure */
   --gray: #64748b;        /* offline/muted */
 
   --radius-s: 10px;
