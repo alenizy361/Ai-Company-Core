@@ -49,7 +49,7 @@ export function startDesktopDaemon(deps: DesktopDaemonDeps): { close: () => void
   // Playwright, or install AT-SPI packages AFTER this daemon started, and
   // /health must reflect reality, not the state from process start.
   const getBackend = async (): Promise<ResolvedBackend> => resolveBackend();
-  const getBrowserBackend = async (): Promise<ResolvedBrowserBackend> => resolveBrowserBackend();
+  const getBrowserBackend = async (): Promise<ResolvedBrowserBackend> => resolveBrowserBackend(deps.paths.varDir);
   const getAtspiBackend = async (): Promise<ResolvedAtspiBackend> => resolveAtspiBackend();
 
   const router = new Router();
